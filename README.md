@@ -59,17 +59,21 @@ no current file meet at the Crew Lodge; active workers move to their file
 district or the Terminal, and the roster keeps their task, state and last known
 place visible. Up to six file districts use workstations that fit their role:
 coding desks, a test dummy and check table, a reading nook, or the Forge anvil.
-The map grows taller as more districts become active so station labels and
-characters remain readable. Fire, forge embers, terminal cursors, footsteps and
-the route marker animate when motion is on. Earned landmarks light the hall's
-progress marks.
+The map gives each room enough floor space for its furniture and workers, then
+adds districts as they become active. Furniture and character sizes scale with
+the room, while a wider label gutter keeps the Patchboard clear. Characters
+type at edit stations and read while reviewing or waiting on an assignment;
+their poses, occupied stations and crew markers animate at staggered intervals.
+Fire, forge embers, terminal cursors and the route marker move too. The Motion
+setting pauses every animation, and earned landmarks light the hall's progress
+marks.
 
 The HUD keeps your hero, Coding level, XP, edits, files and quest progress beside
 the map. **Trail**, **Focus** and **Log** move between the project, a selected
-worker's activity and the visit journal. The expandable **Crew** panel includes
-every known agent task, including reviewers that have not reached a file yet.
-It shows who is working, waiting between tools, running in the background,
-waiting for approval, finished or failed, plus their last known location.
+worker's activity and the visit journal. The **Crew** panel stays collapsed
+while agents work, with a count of active and tracked agents. Open it to see a
+compact roster of every known task, including reviewers that have not reached
+a file yet, with each worker's state, location, last activity and task.
 The floor plan adjusts to narrow panes, and **comfortable** and **large** scale
 settings zoom the complete map, including its room art, labels and characters.
 

@@ -11,7 +11,7 @@ import type { HavenSize, HavenView, VisitRecap } from './haven'
 import { advanceReplay, initHaven, recordHaven, saveRecap, setProfile } from './haven-state'
 
 const PANE = 'task-board'
-const PATCHHAVEN_VERSION = '2.2.3'
+const PATCHHAVEN_VERSION = '2.2.4'
 // Whether Patchhaven takes over the app's own task list under each message.
 const OWN_PLAN_KEY = 'ownPlan'
 let ownsPlan = true
@@ -22,7 +22,9 @@ const files = atom({ plugin: 'task-board', key: 'files' } as const, [])
 // Loop ids seen this turn, in order: index 0 is Claude itself, the rest are subagents.
 const agents = atom({ plugin: 'task-board', key: 'agents' } as const, [''])
 const crewAgents = atom({ plugin: 'task-board', key: 'crewAgents' } as const, [] as CrewAgent[])
-const crewExpanded = atom({ plugin: 'task-board', key: 'crewExpanded' } as const, false)
+// Start the compact roster closed, including on installs that kept the old
+// auto-expanded preference from earlier versions.
+const crewExpanded = atom({ plugin: 'task-board', key: 'crewExpandedV2' } as const, false)
 
 const changes = atom({ plugin: 'task-board', key: 'changes' } as const, {})
 const xp = atom({ plugin: 'task-board', key: 'xp' } as const, 0)
@@ -278,7 +280,6 @@ async function syncAgentRoster($: EngineInterface) {
   const finished = next.filter(a => a.status !== 'running').slice(-12)
   const added = next.filter(agent => !before.some(previousAgent => previousAgent.id === agent.id)).length
   if (added) await update($, stats, s => ({ ...s, crew: (s.crew ?? 0) + added }))
-  if (running.length && !before.some(a => a.status === 'running')) await update($, crewExpanded, () => true)
   await update($, crewAgents, () => [...running, ...finished])
 }
 
@@ -705,8 +706,6 @@ export const register: Register = on => {
       await update($, jobs, j => ({ ...j, [spawned.agentId!]: job })).catch(() => undefined)
       const index = await agentOf($, spawned.agentId)
       const wasTracked = (await read($, crewAgents)).some(a => a.id === spawned.agentId)
-      const alreadyRunning = (await read($, crewAgents)).some(a => a.status === 'running')
-      if (!alreadyRunning) await update($, crewExpanded, () => true)
       await update($, crewAgents, list => [
         ...list.filter(a => a.id !== spawned.agentId),
         { id: spawned.agentId!, index, name: '', type: String(e.subagentType ?? ''), description: String(e.description ?? '').slice(0, 180), status: 'running' },
@@ -861,7 +860,7 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
   const roster = playback ? [] : fixture ? fixture.crew : await read($, crewAgents)
   const runningCrew = roster.filter(a => a.status === 'running')
   const runningIndexes = new Set(runningCrew.map(a => String(a.index)))
-  const expandedCrew = playback ? false : fixture ? demo === 'crew' || demo === 'approval' || demo === 'failure' : await read($, crewExpanded)
+  const expandedCrew = playback ? false : await read($, crewExpanded)
   const tasks = playback ? {} : fixture ? Object.fromEntries(roster.map(agent => [agent.id, agent.description])) : await read($, jobs)
   const waiting = playback ? {} : fixture ? fixture.asking : await read($, asking)
   const selectedCrewId = await read($, selectedCrew)
@@ -943,7 +942,7 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
       const act = acts[String(agent.index)]
       const location = act ? whereOf(String(agent.index), act) : 'Patchboard'
       const needsApproval = waiting[String(agent.index)] !== undefined
-      const state = needsApproval ? 'Needs your approval' : agent.status === 'running' ? liveTurn ? act?.isActive ? 'Working now' : 'Between tools' : 'Running in background' : agent.status === 'failed' ? 'Failed' : agent.status === 'killed' ? 'Stopped' : 'Complete'
+      const state = needsApproval ? 'approval' : agent.status === 'running' ? liveTurn ? act?.isActive ? 'working' : 'between tools' : 'background' : agent.status === 'failed' ? 'failed' : agent.status === 'killed' ? 'stopped' : 'done'
       const color = needsApproval || agent.status === 'failed' ? '#e6a18b' : agent.status === 'running' ? '#9bc9a3' : '#b9c3ac'
       const hero = HEROES.indexOf(profile?.hero ?? 'wizard')
       const cast = [0, 1, 2, 3].filter(index => index !== hero)
@@ -951,10 +950,13 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
       const age = act?.at ? Math.max(0, Math.floor((Date.now() - act.at) / 1000)) : undefined
       const seen = age === undefined ? 'Last seen: not yet on the map' : `Last seen ${age < 60 ? `${age}s ago` : `${Math.floor(age / 60)}m ago`}`
       return <Box key={`task-${agent.id}`} flexDirection="row" gap={1}>
-        {Svg && <Svg source={svgOf(character.w, character.h, character.frames[0]!)} width={20} height={40} alt={`${who} Patchhaven character`} />}
+        {Svg && <Svg source={svgOf(character.w, character.h, character.frames[0]!)} width={14} height={28} alt={`${who} Patchhaven character`} />}
         <Box flexDirection="column">
-          <Button key={`agent-select-${agent.id}`} label={`${String(agent.index) === selectedCrewId ? '◆ ' : '◇ '}${state} · ${who} · ${location}`} plain onPress={async () => { await update($, selectedCrew, () => String(agent.index)); await setProfile($, { view: 'focus' }) }} />
-          <Text color="#d2d2c2" size="caption" wrap="truncate-end">{seen} · {detail}</Text>
+          <Box flexDirection="row" gap={1}>
+            <Text color={color} size="caption">{state}</Text>
+            <Button key={`agent-select-${agent.id}`} label={`${String(agent.index) === selectedCrewId ? '◆ ' : '◇ '}${who}`} plain onPress={async () => { await update($, selectedCrew, () => String(agent.index)); await setProfile($, { view: 'focus' }) }} />
+          </Box>
+          <Text color="#d2d2c2" size="caption" wrap="truncate-end">{location} · {seen} · {detail}</Text>
         </Box>
       </Box>
     })}

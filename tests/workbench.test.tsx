@@ -112,7 +112,7 @@ test('thinking, creating, teleporting and banking all show in the scene', async 
   await clock.advance(10)
 })
 
-test('seven background reviewers appear in the expanded crew roster', async ($, on) => {
+test('seven background reviewers stay tucked away until the crew roster opens', async ($, on) => {
   world($, on)
   const reviewers = Array.from({ length: 7 }, (_, i) => ({
     id: `review-${i + 1}`,
@@ -126,13 +126,21 @@ test('seven background reviewers appear in the expanded crew roster', async ($, 
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const roster = await ui.find({ key: 'crew-toggle' })
-  expect(roster?.props.label).toBe('Background crew · 7 running · 7 tracked ▴')
-  expect((await ui.findAll({ type: 'Svg' })).length).toBe(8)
+  expect(roster?.props.label).toBe('Background crew · 7 running · 7 tracked ▾')
+  expect((await ui.findAll({ type: 'Svg' })).length).toBe(1)
   const map = await ui.find({ type: 'Svg' })
   const mapSvg = String((map as unknown as { props: { source: string } }).props.source)
   expect(mapSvg).toContain('data-station="crew"')
   expect(mapSvg).toContain('aria-label="Crew Lodge work station"')
   expect(mapSvg).toContain('Review file 1')
+  expect(mapSvg).toContain('ON ASSIGNMENT')
+  expect(mapSvg).toContain('values="0;1;0" keyTimes="0;.5;1" dur=".9s"')
+  expect(mapSvg).toContain('values=".45;1;.45"')
+  const collapsedButtons = (await ui.findAll({ type: 'Button' })).map(button => String(button.props.label ?? '')).join('\n')
+  expect(collapsedButtons).not.toContain('Sonnet 5.5 reviewer 1')
+  await ui.press({ key: 'crew-toggle' })
+  expect((await ui.find({ key: 'crew-toggle' }))?.props.label).toBe('Background crew · 7 running · 7 tracked ▴')
+  expect((await ui.findAll({ type: 'Svg' })).length).toBe(8)
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')
   const buttonLabels = (await ui.findAll({ type: 'Button' })).map(button => String(button.props.label ?? '')).join('\n')
   for (let i = 1; i <= 7; i++) {
@@ -140,6 +148,12 @@ test('seven background reviewers appear in the expanded crew roster', async ($, 
     expect(texts).toContain(`Review file ${i}`)
   }
   await ui.unmount()
+
+  await $.command.run({ command: 'haven', args: 'motion' })
+  const still = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const stillMap = String(((await still.find({ type: 'Svg' })) as unknown as { props: { source: string } }).props.source)
+  expect(stillMap).not.toContain('<animate')
+  await still.unmount()
 
   const terminal = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const terminalTexts = (await terminal.findAll({ type: 'Text' })).map(t => t.text).join('\n')
@@ -157,6 +171,7 @@ test('Focus follows one selected worker and keeps other agents off the map', asy
   ] }))
   await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'crew-toggle' })
   await ui.press({ key: 'agent-select-review-2' })
   await ui.unmount()
 

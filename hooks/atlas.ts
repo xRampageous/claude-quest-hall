@@ -46,12 +46,13 @@ function actorLabel(act: Activity, waiting = false): string {
   return 'READING'
 }
 
-function character(index: number, x: number, feet: number, height: number, walking = false): string {
+function character(index: number, x: number, feet: number, height: number, action: 'idle' | 'typing' | 'reading' = 'idle', phase = 0, motion = true): string {
   const art = CHARACTERS[index]!
   const width = Math.max(9, Math.round(height * art.w / art.h))
-  const frames = walking && art.frames.length > 1
-    ? art.frames.slice(0, 2).map((frame, i) => `<g opacity="${i ? 0 : 1}">${frame}<animate attributeName="opacity" values="${i ? '0;1;0' : '1;0;1'}" keyTimes="0;.5;1" dur=".44s" repeatCount="indefinite"/></g>`).join('')
-    : art.frames[0]
+  const framePair = action === 'typing' ? [1, 2] : action === 'reading' ? [3, 4] : []
+  const frames = motion && framePair.length && art.frames.length > framePair[1]!
+    ? framePair.map((frame, i) => `<g opacity="${i ? 0 : 1}">${art.frames[frame]!}<animate attributeName="opacity" values="${i ? '0;1;0' : '1;0;1'}" keyTimes="0;.5;1" dur=".9s" begin="${((phase % 5) * .11).toFixed(2)}s" repeatCount="indefinite"/></g>`).join('')
+    : art.frames[action === 'typing' ? 1 : action === 'reading' ? 3 : 0] ?? art.frames[0]
   return '<svg x="' + (x - width / 2) + '" y="' + (feet - height) + '" width="' + width + '" height="' + height +
     '" viewBox="0 0 ' + art.w + ' ' + art.h + '" shape-rendering="crispEdges">' + frames + '</svg>'
 }
@@ -189,11 +190,13 @@ function station(node: AtlasNode, x: number, y: number, w: number, h: number, ac
     )
   }
   const wallSign = '<rect x="' + (x + 5) + '" y="' + (y + 3) + '" width="' + (w - 10) + '" height="13" fill="#473e30" stroke="#252722"/><path d="M' + (x + 7) + ' ' + (y + 15) + 'h' + (w - 14) + '" stroke="' + (active ? '#e3c779' : accent) + '" stroke-width="1.5"/>'
-  const artScale = Math.min(node.kind === 'board' ? 1.32 : 1.52, h / 58)
+  const artScale = Math.min(node.kind === 'board' ? 1.38 : 1.64, h / 58)
   const artTransform = node.kind === 'board'
     ? 'translate(' + (left * (1 - artScale)) + ' ' + ((y + 19) * (1 - artScale)) + ') scale(' + artScale + ')'
     : 'translate(' + (left * (1 - artScale)) + ' ' + (floor - artScale * artFloor) + ') scale(' + artScale + ')'
-  const activityGlow = active ? '<path d="M' + (x + 2) + ' ' + (y + 18) + 'v10" stroke="#f0c86e" stroke-width="2"/>' : ''
+  const activityGlow = active
+    ? '<path d="M' + (x + 2) + ' ' + (y + 18) + 'v10" stroke="#f0c86e" stroke-width="2">' + (working && motion ? '<animate attributeName="opacity" values=".4;1;.4" dur="1.1s" repeatCount="indefinite"/>' : '') + '</path>'
+    : ''
   return [
     '<rect x="' + (x + 2) + '" y="' + (y + 16) + '" width="' + (w - 4) + '" height="' + (h - 20) + '" fill="#172522" opacity=".17"/>',
     '<path d="M' + (x + 6) + ' ' + (floor - 3) + 'h' + (w - 12) + '" stroke="#b18a55" stroke-width="2" opacity=".7"/>',
@@ -256,7 +259,9 @@ export function drawAtlas(scene: Scene): { svg: string; width: number; height: n
   const padX = 7
   const cardW = (width - padX * 2 - gapX) / columns
   const rows = Math.ceil(nodes.length / columns)
-  const rowPitch = Math.max(88, Math.min(126, 350 / rows))
+  const rowPitch = columns === 1
+    ? Math.max(92, Math.min(126, 560 / rows))
+    : Math.max(100, Math.min(136, 410 / rows))
   const cardHeight = rowPitch - 2
   const fieldTop = 31
   const rowStart = fieldTop
@@ -318,7 +323,9 @@ export function drawAtlas(scene: Scene): { svg: string; width: number; height: n
       })
       const drawnAgents = agents.filter(actor => visibleIds.has(actor.id)).slice(0, 2)
       const active = agents.length > 0
-      const working = agents.some(actor => actor.activity.isActive)
+      const usingTool = agents.some(actor => actor.activity.isActive)
+      const assignedCrew = agents.some(actor => actor.id !== '0' && running.has(actor.id))
+      const working = usingTool || assignedCrew
       const accent = node.kind === 'folder' ? paletteFor(node.title).accent : node.kind === 'forge' ? '#df9160' : node.kind === 'test' ? '#91bd86' : node.kind === 'library' ? '#c5a2d2' : node.kind === 'board' ? '#e0c782' : '#81c4bd'
       const structure = station(node, x, y, w, h, accent, active, working, scene.haven?.motion !== false)
       bits.push('<g data-station="' + node.kind + '" aria-label="' + esc(node.title + ' work station') + '">' + structure.join('') + '</g>')
@@ -341,13 +348,14 @@ export function drawAtlas(scene: Scene): { svg: string; width: number; height: n
         ? actorLabel(agents[0]?.activity ?? { file: '#terminal', tool: '', at: 0, isActive: false, isEdit: false }, agents.some(actor => scene.asking[actor.id] !== undefined))
         : node.kind === 'board'
           ? (agents.some(actor => scene.asking[actor.id] !== undefined) ? 'AWAITING APPROVAL' : scene.questStatus === 'blocked' ? 'QUEST PAUSED' : scene.questStatus === 'cancelled' ? 'QUEST CANCELLED' : scene.questStatus === 'replaced' ? 'NEW QUEST' : scene.questStatus === 'completed' ? 'QUEST COMPLETE' : scene.steps.length ? scene.steps.filter(step => step.status === 'completed').length + '/' + scene.steps.length + ' STEPS' : 'READY FOR WORK')
-          : node.kind === 'crew' ? agents.length + ' ON THE ROSTER · ' + (agents.some(actor => scene.asking[actor.id] !== undefined) ? 'AWAITING YOU' : working ? 'WORKING' : 'BETWEEN TASKS')
+          : node.kind === 'crew' ? agents.length + ' ON THE ROSTER · ' + (agents.some(actor => scene.asking[actor.id] !== undefined) ? 'AWAITING YOU' : usingTool ? 'WORKING' : assignedCrew ? 'ON ASSIGNMENT' : 'BETWEEN TASKS')
           : node.kind === 'inn' ? (scene.isTurn ? 'CHOOSING A ROUTE' : 'AT CAMP')
           : agents.some(actor => scene.asking[actor.id] !== undefined) ? 'NEEDS APPROVAL'
             : [desk?.touch.isNew ? 'NEW' : code ?? (desk?.touch.kind === 'read' ? 'READ' : ''), add ? '+' + add : '', del ? '−' + del : ''].filter(Boolean).join(' · ') || (active ? actorLabel(agents[0]!.activity, agents.some(actor => scene.asking[actor.id] !== undefined)) : 'FILE DISTRICT')
-      const signX = x + 57
+      const signOffset = node.kind === 'board' ? 68 : 57
+      const signX = x + signOffset
       const workerGutter = drawnAgents.length > 1 ? 76 : drawnAgents.length === 1 ? 48 : 12
-      const available = Math.max(46, w - 65 - workerGutter)
+      const available = Math.max(46, w - signOffset - 8 - workerGutter)
       const titleFontSize = 9.2 * scale
       const fileFontSize = Math.max(10.5, Math.min(13.2 * scale, available / (Math.max(1, fileName.length) * .58)))
       const statusFontSize = Math.max(8.4, Math.min(9.8 * scale, available / (Math.max(1, statusText.length) * .58)))
@@ -375,16 +383,21 @@ export function drawAtlas(scene: Scene): { svg: string; width: number; height: n
         if (scene.haven?.motion !== false && spawned !== undefined && scene.now - spawned < 1100) {
           bits.push('<circle cx="0" cy="-10" r="8" fill="none" stroke="#f0c86e" stroke-width="1"><animate attributeName="r" from="3" to="9" dur=".55s" fill="freeze"/><animate attributeName="opacity" from=".8" to="0" dur=".55s" fill="freeze"/></circle>')
         }
+        const assigned = actor.id !== '0' && running.has(actor.id)
         const actorHero = actor.id === '0'
-        const spriteHeight = Math.min((actorHero ? 50 : 39) * scale, h * (actorHero ? .62 : .5))
+        const motion = scene.haven?.motion !== false
+        const action = actor.activity.isActive
+          ? actor.activity.isEdit || actor.activity.mode === 'shell' || actor.activity.mode === 'apply' ? 'typing' : 'reading'
+          : assigned ? 'reading' : 'idle'
+        const spriteHeight = Math.min((actorHero ? 50 : 42) * scale, h * (actorHero ? .56 : .5))
         const spriteArt = CHARACTERS[actorHero ? hero : actorIndex(actor.id, hero)]!
         const spriteWidth = Math.round(spriteHeight * spriteArt.w / spriteArt.h)
         if (actorHero && !actor.activity.isActive) {
           bits.push('<g>' + (scene.haven?.motion === false ? '' : '<animateTransform attributeName="transform" type="translate" values="0 0;0 -1;0 0" dur="1.2s" repeatCount="indefinite"/>') + '<use href="#c' + hero + 'f0" x="' + (-spriteWidth / 2) + '" y="' + (-spriteHeight) + '" width="' + spriteWidth + '" height="' + spriteHeight + '"/></g></g>')
         } else {
-          bits.push('<g>' + (scene.haven?.motion === false ? '' : '<animateTransform attributeName="transform" type="translate" values="0 0;0 -1;0 0" dur="1.2s" repeatCount="indefinite"/>') + character(actorHero ? hero : actorIndex(actor.id, hero), 0, 0, spriteHeight, actor.activity.isActive && scene.haven?.motion !== false) + '</g></g>')
+          bits.push('<g>' + (motion ? '<animateTransform attributeName="transform" type="translate" values="0 0;0 -1;0 0" dur="1.2s" repeatCount="indefinite"/>' : '') + character(actorHero ? hero : actorIndex(actor.id, hero), 0, 0, spriteHeight, action, Number(actor.id) || 0, motion) + '</g></g>')
         }
-        bits.push('<rect x="' + (px - 3) + '" y="' + (y + 16) + '" width="5" height="2" fill="' + AGENT_COLORS[Number(actor.id) % AGENT_COLORS.length] + '"/>')
+        bits.push('<rect x="' + (px - 3) + '" y="' + (y + 16) + '" width="5" height="2" fill="' + AGENT_COLORS[Number(actor.id) % AGENT_COLORS.length] + '"' + (motion && (assigned || actor.activity.isActive) ? '><animate attributeName="opacity" values=".45;1;.45" dur=".9s" begin="' + ((Number(actor.id) % 5) * .1).toFixed(1) + 's" repeatCount="indefinite"/></rect>' : '/>'))
         if (scene.asking[actor.id] !== undefined) {
           const bubbleY = feet - spriteHeight - 14
           bits.push('<g transform="translate(' + (px - 5) + ' ' + bubbleY + ')"' + (scene.haven?.motion === false ? '' : '><animateTransform attributeName="transform" type="translate" values="0 0;0 -1;0 0" dur=".8s" repeatCount="indefinite"/>') + (scene.haven?.motion === false ? '>' : '') + '<rect width="11" height="11" rx="3" fill="#f0d17d" stroke="#533b2b"/><text x="5.5" y="8.2" text-anchor="middle" font-size="8" font-weight="700" fill="#33271e">?</text></g>')

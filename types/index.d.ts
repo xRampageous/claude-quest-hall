@@ -50,7 +50,7 @@ declare module 'claude-code' {
       agents: string[]
       // Current session's agent roster, including background tasks.
       crewAgents: CrewAgent[]
-      crewExpanded: boolean
+      crewExpandedV2: boolean
       changes: Record<string, Change>
       // Keyed by agent index ("0" is Claude).
       activity: Record<string, Activity>
