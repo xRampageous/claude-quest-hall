@@ -1,9 +1,12 @@
 import { atom, read, update } from 'claude-code'
 import type { Register, EngineInterface, RenderInput } from 'claude-code'
 
-import type { Activity, Step, Touch } from '../types'
+import type { Activity, CrewAgent, Step, Touch } from '../types'
 import { readChanges } from './git'
 import { drawRooms, roomsOf } from './rooms'
+import { absoluteFile, eventText, HEROES, HERO_COLORS, LANDMARKS, relativeFile, replayFrame, settlementOf } from './haven'
+import type { HavenView } from './haven'
+import { advanceReplay, haven, initHaven, recordHaven, setProfile } from './haven-state'
 
 const PANE = 'task-board'
 // Whether the Workbench takes over the app's own task list under each message.
@@ -14,6 +17,8 @@ const steps = atom({ plugin: 'task-board', key: 'steps' } as const, [])
 const files = atom({ plugin: 'task-board', key: 'files' } as const, [])
 // Loop ids seen this turn, in order: index 0 is Claude itself, the rest are subagents.
 const agents = atom({ plugin: 'task-board', key: 'agents' } as const, [''])
+const crewAgents = atom({ plugin: 'task-board', key: 'crewAgents' } as const, [] as CrewAgent[])
+const crewExpanded = atom({ plugin: 'task-board', key: 'crewExpanded' } as const, false)
 
 const changes = atom({ plugin: 'task-board', key: 'changes' } as const, {})
 const xp = atom({ plugin: 'task-board', key: 'xp' } as const, 0)
@@ -57,6 +62,7 @@ const pulse = atom({ plugin: 'task-board', key: 'pulse' } as const, 0)
 
 // Where each agent stood at the last drawing, so a move can be walked.
 let lastSpots: Record<string, { x: number; y: number }> = {}
+let lastSceneKey = ''
 // Agents already toasted as stuck, by agent and kind, until they act again.
 const warned = new Set<string>()
 // Set by a new prompt: the last turn's scene stays up until this turn first touches a file.
@@ -106,8 +112,11 @@ async function xpElsewhere($: EngineInterface): Promise<number> {
     const stores = (await $.fs.list(dir)).filter(f => f.kind === 'file' && f.name.startsWith('task-board_') && f.name.endsWith('.json'))
     let best = 0
     for (const f of stores) {
-      const saved = JSON.parse(String(await $.fs.read(`${dir}/${f.name}`))) as { xp?: unknown }
-      best = Math.max(best, Number(saved.xp) || 0)
+      try {
+        const saved = JSON.parse(String(await $.fs.read(`${dir}/${f.name}`))) as { xp?: unknown }
+        const amount = Number(saved.xp)
+        if (Number.isFinite(amount) && amount >= 0) best = Math.max(best, amount)
+      } catch { /* One damaged store must not hide the healthy copies. */ }
     }
 
     return best
@@ -157,6 +166,7 @@ async function showPlan($: EngineInterface, plan: Step[]) {
   if (plan.length > 0 && done.length === plan.length) {
     if (!wasComplete) {
       await update($, stats, s => ({ ...s, quests: s.quests + 1 }))
+      await recordHaven($, { kind: 'quest', count: plan.length })
       $.ui.toast(`Congratulations, quest complete! (${plan.length} step${plan.length === 1 ? '' : 's'})`)
     }
   } else if (newlyDone.length > 0) {
@@ -180,9 +190,72 @@ async function agentOf($: EngineInterface, loopId: string): Promise<number> {
   const isNewAgent = !(await read($, agents)).includes(loopId)
   const seen = await update($, agents, l => (l.includes(loopId) ? l : [...l, loopId]))
   const agent = seen.indexOf(loopId)
-  if (isNewAgent && agent > 0) await update($, spawns, s => ({ ...s, [agent]: Date.now() }))
+  if (isNewAgent && agent > 0) {
+    await update($, spawns, s => ({ ...s, [agent]: Date.now() }))
+    const hero = (await read($, haven))?.profile.hero ?? 'wizard'
+    const cast = HEROES.filter(h => h !== hero)
+    await recordHaven($, { kind: 'crew', role: cast[(agent - 1) % cast.length] })
+  }
 
   return agent
+}
+
+// Keep a live roster even when a background agent has not called a tool yet,
+// and after Claude's foreground turn has ended.
+async function syncAgentRoster($: EngineInterface) {
+  const engine = $ as EngineInterface & { agent?: { list?: () => Promise<unknown> } }
+  const listAgents = engine.agent?.list
+  if (typeof listAgents !== 'function') return
+  let listed: unknown
+  try { listed = await listAgents.call(engine.agent) } catch { return }
+  if (!Array.isArray(listed)) return
+
+  const before = await read($, crewAgents)
+  const previous = new Map(before.map(a => [a.id, a.status]))
+  const next: CrewAgent[] = []
+  for (const value of listed) {
+    if (!value || typeof value !== 'object') continue
+    const info = value as Record<string, unknown>
+    if (typeof info.id !== 'string' || !info.id) continue
+    const id = info.id
+    const index = await agentOf($, id)
+    const rawStatus = String(info.status ?? '')
+    const status: CrewAgent['status'] = rawStatus === 'completed' || rawStatus === 'failed' || rawStatus === 'killed' ? rawStatus : 'running'
+    const name = typeof info.name === 'string' ? info.name : ''
+    const type = typeof info.type === 'string' ? info.type : ''
+    const description = typeof info.description === 'string' ? info.description : ''
+    next.push({ id, index, name: name.slice(0, 60), type: type.slice(0, 60), description: description.slice(0, 180), status })
+    const job = [type, description].filter(Boolean).join(': ').slice(0, 240)
+    if (job) await update($, jobs, j => ({ ...j, [id]: job }))
+
+    const key = String(index)
+    const was = previous.get(id)
+    if (status === 'running') {
+      if (was !== 'running') {
+        await update($, spawns, s => ({ ...s, [key]: Date.now() }))
+        await update($, departs, d => { const { [key]: _, ...rest } = d; return rest })
+      }
+      await update($, activity, a => {
+        const old = a[key]
+        return {
+          ...a,
+          [key]: old?.isActive ? old : {
+            tool: '', file: old?.file ?? '#hall', at: old?.at ?? Date.now(), isActive: false,
+            isEdit: old?.isEdit ?? false, mode: 'background',
+          },
+        }
+      })
+    } else {
+      if (was === 'running') await update($, departs, d => d[key] === undefined ? { ...d, [key]: Date.now() } : d)
+      await update($, activity, a => a[key] ? { ...a, [key]: { ...a[key]!, isActive: false } } : a)
+    }
+  }
+  // A session can retain completed agents indefinitely; keep all active work
+  // and the most recent dozen finished entries in the visible roster.
+  const running = next.filter(a => a.status === 'running')
+  const finished = next.filter(a => a.status !== 'running').slice(-12)
+  if (running.length && !before.some(a => a.status === 'running')) await update($, crewExpanded, () => true)
+  await update($, crewAgents, () => [...running, ...finished])
 }
 
 // A chime from the mod's own assets, when sounds are on; a missing speaker
@@ -213,12 +286,12 @@ async function hit($: EngineInterface, agent: number, text: string) {
 async function track<T>($: EngineInterface, tool: string, path: string, loopId: string, kind: Touch['kind'], isNew: boolean, run: () => Promise<T>): Promise<T> {
   if (isFresh) {
     isFresh = false
-    await update($, files, () => [])
-    await update($, agents, () => [''])
-    await update($, activity, () => ({}))
+    // Keep desks and crew identities across turns. Only the NEW designation
+    // expires; a new prompt should not rearrange the whole workplace.
+    await update($, files, l => l.map(f => ({ ...f, isActive: false, isNew: false })))
   }
   const agent = await agentOf($, loopId)
-  if ((await read($, files)).length === 0) void $.ui.open({ id: PANE, title: 'Workbench' })
+  if ((await read($, files)).length === 0) void $.ui.open({ id: PANE, title: 'Patchhaven' })
   await update($, files, l => {
     const was = l.find(f => f.path === path)
     const rest = l.filter(f => f.path !== path)
@@ -228,7 +301,7 @@ async function track<T>($: EngineInterface, tool: string, path: string, loopId: 
         ? { ...was, isActive: true }
         : { path, agent, isActive: true, edits: (was?.edits ?? 0) + (kind === 'edit' ? 1 : 0), kind, isNew: isNew || was?.isNew }
 
-    return [now, ...rest].slice(0, 40)
+    return was ? l.map(f => f.path === path ? now : f) : [...rest, now].slice(-40)
   })
   const isEdit = kind === 'edit'
   const isApply = tool === 'MultiEdit'
@@ -243,22 +316,104 @@ async function track<T>($: EngineInterface, tool: string, path: string, loopId: 
   }
 }
 
+async function hydrate($: EngineInterface, fresh = false) {
+  ownsPlan = (await $.store.get(OWN_PLAN_KEY).catch(() => undefined)) !== false
+  isSoundOn = (await $.store.get(SOUND_KEY).catch(() => undefined)) === true
+  const saved = Number(await $.store.get(XP_KEY).catch(() => 0))
+  const earned = Math.max(Number.isFinite(saved) && saved >= 0 ? saved : 0, await xpElsewhere($))
+  await update($, xp, () => earned)
+  await $.store.set(XP_KEY, earned).catch(() => undefined)
+  const state = await initHaven($, fresh)
+  if (!(await read($, files)).length) {
+    const places = state.run.places.length ? state.run.places : state.history[0]?.places ?? []
+    const restored = places.slice(-12).map(file => absoluteFile(state.run.root, file)).filter((path): path is string => Boolean(path))
+    await update($, files, () => restored.map(path => ({ path, agent: 0, isActive: false, edits: 0, kind: 'read' as const })))
+  }
+  if (fresh) { lastSpots = {}; warned.clear() }
+}
+
+async function runHavenCommand($: EngineInterface, args: string) {
+  const [command = '', ...rest] = args.trim().split(/\s+/)
+  const arg = command.toLowerCase()
+  const state = await read($, haven)
+  if (arg === 'help' || arg === '?') return { text: [
+    'Patchhaven · a living world built from your coding sessions.',
+    '/haven — open your settlement. /board is an alias.',
+    '/haven world | focus | journal — choose a view.',
+    '/haven stats (or recap) — this session’s progress.',
+    '/haven hero wizard | knight | ranger | smith — choose your appearance.',
+    '/haven name <name> — name your hero (24 characters).',
+    '/haven replay — watch the selected journal visit; /haven live returns to work.',
+    '/haven motion — toggle animation. /haven sound — toggle chimes.',
+    '/haven plan — toggle the app’s step list. /haven help — these commands.',
+    'Legacy commands: /board sound · /board plan · /board stats.',
+  ].join('\n') }
+  if (arg === 'stats' || arg === 'recap') {
+    const session = await read($, stats)
+    const banked = await read($, bank)
+    const totalXp = await read($, xp)
+    return { text: [
+      'Patchhaven session stats',
+      `Coding ${levelOf(totalXp).level} · ${totalXp.toLocaleString()} total XP · +${(session.xp ?? 0).toLocaleString()} this session`,
+      `${session.edits} edits · ${session.files.length} files · ${session.quests} quests complete`,
+      `${(session.add ?? 0).toLocaleString()} lines added · ${(session.del ?? 0).toLocaleString()} removed · ${banked?.total ?? 0} files banked`,
+      state ? `${state.run.name} · ${settlementOf(state.landmarks).stage} · ${state.landmarks.length}/${LANDMARKS.length} landmarks` : '',
+    ].filter(Boolean).join('\n') }
+  }
+  if (['world', 'focus', 'journal', 'history'].includes(arg)) {
+    await setProfile($, { view: arg === 'history' ? 'journal' : arg as HavenView })
+  } else if (arg === 'hero') {
+    const hero = rest[0]?.toLowerCase()
+    if (!HEROES.includes(hero as typeof HEROES[number])) return { text: `Hero: ${state?.profile.hero ?? 'wizard'}. Choose wizard, knight, ranger or smith: /haven hero ranger` }
+    await setProfile($, { hero: hero as typeof HEROES[number] })
+    return { text: `Your Patchhaven hero is now a ${hero}.` }
+  } else if (arg === 'name') {
+    if (!rest.length) return { text: `Hero name: ${state?.profile.name ?? 'Claude'}. Set one with /haven name <name>.` }
+    await setProfile($, { name: rest.join(' ') })
+    return { text: `Welcome home, ${(await read($, haven))?.profile.name}.` }
+  } else if (arg === 'motion') {
+    const motion = !state?.profile.motion
+    await setProfile($, { motion })
+    return { text: motion ? 'Patchhaven animations on.' : 'Patchhaven animations off. Activity still updates.' }
+  } else if (arg === 'replay') {
+    if (await read($, isTurn)) return { text: 'Watch a journal visit between turns. Live work stays in view while Claude is working.' }
+    const run = state ? [state.run, ...state.history][state.journalIndex] : undefined
+    if (!run?.events.length) return { text: 'No recorded work in this visit yet. Choose an older visit in the Journal, or read or edit a file first.' }
+    await update($, haven, s => s ? { ...s, profile: { ...s.profile, view: 'world' }, replay: { runId: run.id, index: 0, finished: run.events.length === 1 } } : s)
+  } else if (arg === 'live') {
+    await update($, haven, s => s ? { ...s, replay: undefined } : s)
+  } else if (arg === 'sound') {
+    isSoundOn = !isSoundOn
+    await $.store.set(SOUND_KEY, isSoundOn).catch(() => undefined)
+    chime($, 'done')
+    return { text: isSoundOn ? 'Patchhaven chimes on: when Claude needs you, and when a turn ends.' : 'Patchhaven chimes off.' }
+  } else if (arg === 'plan') {
+    ownsPlan = !ownsPlan
+    await $.store.set(OWN_PLAN_KEY, ownsPlan).catch(() => undefined)
+    return { text: ownsPlan ? "Claude's steps show in Patchhaven only." : "Claude's steps show under each message again." }
+  } else if (arg) return { text: `Unknown Patchhaven command: ${command}. Use /haven help.` }
+  await $.ui.open({ id: PANE, title: 'Patchhaven' })
+  return { text: 'Patchhaven opened.' }
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    ownsPlan = (await $.store.get(OWN_PLAN_KEY)) !== false
-    isSoundOn = (await $.store.get(SOUND_KEY)) === true
-    const earned = Math.max(Number((await $.store.get(XP_KEY)) ?? 0), await xpElsewhere($))
-    await update($, xp, () => earned)
-    await $.store.set(XP_KEY, earned).catch(() => undefined)
+    await hydrate($)
+    await syncAgentRoster($)
+    $.clock.every(1400, () => advanceReplay($))
     // Every few seconds of a turn: redraw so idle agents show, and toast once
     // for an agent waiting on you or idle for two minutes.
     $.clock.every(5000, async () => {
-      if (!(await read($, isTurn))) return
+      const hadRunning = (await read($, crewAgents)).some(a => a.status === 'running')
+      await syncAgentRoster($)
+      const running = new Set((await read($, crewAgents)).filter(a => a.status === 'running').map(a => String(a.index)))
+      const turnActive = await read($, isTurn)
+      if (!turnActive && !running.size && !hadRunning) return
       const now = Date.now()
       for (const [agent, act] of Object.entries(await read($, activity))) {
         const who = agent === '0' ? 'Claude' : `Agent ${agent}`
         const name = act.file.slice(act.file.lastIndexOf('/') + 1)
-        if (!act.isActive && now - act.at > 120_000 && !warned.has(`${agent}:idle`)) {
+        if (turnActive && !running.has(agent) && !act.isActive && now - act.at > 120_000 && !warned.has(`${agent}:idle`)) {
           warned.add(`${agent}:idle`)
           $.ui.toast(`${who} has been idle for 2 minutes${name ? ` (last on ${name})` : ''}`)
         }
@@ -266,46 +421,16 @@ export const register: Register = on => {
       await update($, pulse, n => n + 1)
     })
     rescan($)
-    await $.command.register({ name: 'board', description: 'Open the Workbench. /board help lists its commands and settings' })
+    await $.command.register({ name: 'haven', description: 'Open Patchhaven: your hero, live file rooms, crew and journal. /haven help' })
+    await $.command.register({ name: 'board', description: 'Open Patchhaven (alias for /haven). /board help lists commands' })
     return next(e)
   })
 
-  on('command.run', { command: 'board' }, async ($, e) => {
-    const arg = e.args.trim().toLowerCase()
-    if (arg === 'help' || arg === '?') {
-      return { text: '/board — open the Workbench.\n/board stats (or recap) — show this session’s progress.\n/board sound — toggle chimes for approvals and completed turns.\n/board plan — toggle whether steps also appear under messages.\n/board help — show these commands.' }
-    }
-    if (arg === 'stats' || arg === 'recap') {
-      const session = await read($, stats)
-      const banked = await read($, bank)
-      const totalXp = await read($, xp)
-      const { level } = levelOf(totalXp)
-
-      return {
-        text: [
-          'Workbench session stats',
-          `Coding ${level} · ${totalXp.toLocaleString()} total XP · +${(session.xp ?? 0).toLocaleString()} this session`,
-          `${session.edits} edits · ${session.files.length} files · ${session.quests} quests complete`,
-          `${(session.add ?? 0).toLocaleString()} lines added · ${(session.del ?? 0).toLocaleString()} removed · ${banked?.total ?? 0} files banked`,
-        ].join('\n'),
-      }
-    }
-    if (arg === 'sound') {
-      isSoundOn = !isSoundOn
-      await $.store.set(SOUND_KEY, isSoundOn)
-      chime($, 'done')
-
-      return { text: isSoundOn ? 'Workbench chimes on: when Claude needs you, and when a turn ends.' : 'Workbench chimes off.' }
-    }
-    if (arg === 'plan') {
-      ownsPlan = !ownsPlan
-      await $.store.set(OWN_PLAN_KEY, ownsPlan)
-
-      return { text: ownsPlan ? "Claude's steps show in the Workbench only." : "Claude's steps show under each message again." }
-    }
-    await $.ui.open({ id: PANE, title: 'Workbench' })
-
-    return { text: 'Workbench opened.' }
+  on('command.run', { command: 'board' }, ($, e) => runHavenCommand($, e.args))
+  on('command.run', { command: 'haven' }, ($, e) => runHavenCommand($, e.args))
+  on('classic.SessionStart', async ($, e, next) => {
+    if (['clear', 'resume', 'fork'].includes(String(e.source))) { await hydrate($, true); rescan($); await syncAgentRoster($) }
+    return next(e)
   })
 
   on('tool.call', async ($, e, next) => {
@@ -340,7 +465,7 @@ export const register: Register = on => {
       await showPlan($, plan)
       if (ran) return ran
 
-      return { result: `Plan shown in the Workbench (${plan.length} steps).` } as never
+      return { result: `Plan shown in Patchhaven (${plan.length} steps).` } as never
     }
 
     const path = posix(String(input.file_path ?? input.notebook_path ?? ''))
@@ -385,6 +510,7 @@ export const register: Register = on => {
       if (mode === 'test' && !ran.deny) {
         const failed = ran.isError || /\b(FAIL(ED|URE)?|[1-9]\d* fail(ed|ing|ures?)?)\b/.test(String(ran.text ?? ''))
         await update($, splats, s => ({ ...s, [agent]: { kind: failed ? 'fail' : 'pass', damage: 0, at: Date.now() } }))
+        await recordHaven($, { kind: 'check', ok: !failed })
       } else if (ran.isError && !ran.deny) {
         await hit($, await agentOf($, e.agentId ?? ''), String(ran.text ?? e.tool))
       }
@@ -392,10 +518,12 @@ export const register: Register = on => {
       if (e.tool === 'Bash' || e.tool === 'PowerShell') {
         rescan($)
         // A commit banks its files: coins fly from the desks into the Quest Hall's chest.
-        if (COMMIT.test(String(input.command ?? '')) && !ran.deny && !ran.isError) {
+        const commit = /\[[^\]\r\n]+\s([0-9a-f]{7,40})\]/i.exec(String(ran.text ?? ''))
+        if (COMMIT.test(String(input.command ?? '')) && !ran.deny && !ran.isError && commit) {
           const said = /(\d+) files? changed/.exec(String(ran.text ?? ''))
           const count = said ? Number(said[1]) : 1
           await update($, bank, b => ({ files: count, at: Date.now(), total: (b?.total ?? 0) + count }))
+          await recordHaven($, { kind: 'commit', count, ref: commit[1] })
           $.ui.toast(`+${count} file${count === 1 ? '' : 's'} banked`)
         }
       }
@@ -433,7 +561,12 @@ export const register: Register = on => {
           $.ui.toast(`Congratulations, your Coding level is now ${after}!`)
           await update($, levelUp, () => ({ level: after, at: Date.now() }))
         }
+        const root = (await read($, haven))?.run.root ?? await $.session.cwd()
+        await recordHaven($, { kind: 'edit', file: relativeFile(root, path), xp: gained })
       }
+    } else if (!ran.deny && !ran.isError) {
+      const root = (await read($, haven))?.run.root ?? await $.session.cwd()
+      await recordHaven($, { kind: 'read', file: relativeFile(root, path) })
     }
 
     return ran
@@ -442,6 +575,7 @@ export const register: Register = on => {
   // A new prompt starts a fresh workbench once it first touches a file; until then the last scene stays.
   on('prompt.submit', async ($, e, next) => {
     isFresh = true
+    await update($, haven, s => s ? { ...s, replay: undefined } : s)
     await update($, isTurn, () => true)
     await update($, turnStart, () => Date.now())
     await update($, failure, () => null)
@@ -474,6 +608,14 @@ export const register: Register = on => {
     if (!spawned.deny && spawned.agentId) {
       const job = `${e.subagentType}: ${e.description}`
       await update($, jobs, j => ({ ...j, [spawned.agentId!]: job })).catch(() => undefined)
+      const index = await agentOf($, spawned.agentId)
+      const alreadyRunning = (await read($, crewAgents)).some(a => a.status === 'running')
+      if (!alreadyRunning) await update($, crewExpanded, () => true)
+      await update($, crewAgents, list => [
+        ...list.filter(a => a.id !== spawned.agentId),
+        { id: spawned.agentId!, index, name: '', type: String(e.subagentType ?? ''), description: String(e.description ?? '').slice(0, 180), status: 'running' },
+      ])
+      await update($, activity, a => ({ ...a, [String(index)]: a[String(index)] ?? { tool: '', file: '#hall', at: Date.now(), isActive: false, isEdit: false, mode: 'background' } }))
     }
 
     return spawned
@@ -512,7 +654,12 @@ export const register: Register = on => {
   on('classic.SubagentStop', async ($, e, next) => {
     try {
       const agent = (await read($, agents)).indexOf(e.agent_id)
-      if (agent > 0) await update($, departs, d => ({ ...d, [agent]: Date.now() }))
+      if (agent > 0) {
+        const key = String(agent)
+        await update($, departs, d => ({ ...d, [key]: Date.now() }))
+        await update($, activity, a => a[key] ? { ...a, [key]: { ...a[key]!, isActive: false } } : a)
+        await update($, crewAgents, list => list.map(a => a.index === agent && a.status === 'running' ? { ...a, status: 'completed' } : a))
+      }
     } catch {
       // A missed departure only costs the animation, never the subagent's stop.
     }
@@ -530,6 +677,7 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     await update($, isTurn, () => false)
     await update($, asking, () => ({}))
+    await syncAgentRoster($)
     if (e.reason === 'aborted') await update($, stoppedAt, () => Date.now())
     chime($, 'done')
 
@@ -543,7 +691,7 @@ export const register: Register = on => {
     } catch (err) {
       const { Text } = $.ui.resolve(e)
 
-      return <Text color="#f14c4c">Workbench could not draw: {String(err instanceof Error ? err.stack ?? err.message : err)}</Text>
+      return <Text color="#f14c4c">Patchhaven could not draw: {String(err instanceof Error ? err.stack ?? err.message : err)}</Text>
     }
   })
 }
@@ -553,25 +701,40 @@ export const register: Register = on => {
 // draws no SVG, gets the card and the quests as text.
 async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
   const ui = $.ui.resolve(e)
-  const { Box, Text } = ui
+  const { Box, Text, Button } = ui
   await read($, pulse)
+  const home = await read($, haven)
+  const profile = home?.profile
+  const playback = home ? replayFrame(home) : undefined
   const plan = await read($, steps)
-  const touched = await read($, files)
+  let touched = await read($, files)
   const git = await read($, changes)
   const total = await read($, xp)
-  const acts = await read($, activity)
-  const turn = await read($, isTurn)
-  const gone = await read($, departs)
-  const root = posix(await $.session.cwd()).toLowerCase()
+  let acts = await read($, activity)
+  const liveTurn = await read($, isTurn)
+  const turn = playback ? true : liveTurn
+  const gone = playback ? {} : await read($, departs)
+  const root = home?.run.root ?? posix(await $.session.cwd())
+  if (playback) {
+    const { event, files: recordedFiles } = playback
+    const active = event.file ? absoluteFile(root, event.file) ?? '#hall' : '#hall'
+    touched = recordedFiles.map(file => absoluteFile(root, file)).filter((path): path is string => Boolean(path)).map(path => ({ path, agent: 0, isActive: path === active, edits: 0, kind: 'read' as const }))
+    acts = { 0: { tool: eventText(event), file: active, at: Date.now(), isActive: true, isEdit: event.kind === 'edit', mode: event.kind === 'check' ? 'test' : event.kind === 'quest' ? 'quests' : undefined } }
+  }
   const { level, from, to } = levelOf(total)
   const session = await read($, stats)
   const banked = await read($, bank)
   const bar = 12
   const filled = to > from ? Math.round(((total - from) / (to - from)) * bar) : bar
   const done = plan.filter(s => s.status === 'completed').length
-  const failed = await read($, failure)
+  const failed = playback ? null : await read($, failure)
   const loops = await read($, agents)
-  const tasks = await read($, jobs)
+  const roster = playback ? [] : await read($, crewAgents)
+  const runningCrew = roster.filter(a => a.status === 'running')
+  const runningIndexes = new Set(runningCrew.map(a => String(a.index)))
+  const expandedCrew = playback ? false : await read($, crewExpanded)
+  const tasks = playback ? {} : await read($, jobs)
+  const waiting = playback ? {} : await read($, asking)
   const startedAt = await read($, turnStart)
   const elapsed = turn && startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0
   const clock = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`
@@ -580,23 +743,24 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
   // or the Inn, as the scene draws it.
   const whereOf = (agent: string, act: Activity): string => {
     if (agent === '0' && !turn) return 'Inn · waiting for you'
-    if (act.file === '#hall') return act.mode === 'quests' ? 'Quest Hall · reading the quests' : 'Quest Hall'
+    if (act.file === '#hall') return act.mode === 'quests' ? 'Guild Hall · reading the quests' : 'Guild Hall'
     if (act.file === '#terminal') return `Terminal · ${act.tool}`
-    const path = act.file.toLowerCase().startsWith(`${root}/`) ? act.file.slice(root.length + 1) : act.file
+    const path = relativeFile(root, act.file) ?? act.file
     const parts = path.split('/')
     const file = parts.pop() ?? path
 
     return [...(parts.length > 2 ? ['…'] : []), ...parts.slice(-2), file].join(' › ')
   }
-  const crew = Object.entries(acts)
-    .filter(([agent, act]) => !(gone[agent] !== undefined && act.at <= gone[agent]!) && (agent === '0' || turn))
-    .slice(0, 4)
-  if (!crew.some(([agent]) => agent === '0')) crew.unshift(['0', { tool: '', file: '#hall', at: 0, isActive: false, isEdit: false }])
+  const crew: [string, Activity][] = [['0', acts[0] ?? { tool: '', file: '#hall', at: 0, isActive: false, isEdit: false }]]
 
   // One card in the scene's own palette: dark wood, a bronze rim, and the
   // yellow of a game's interface text.
   const header = (
-    <Box borderStyle="round" borderColor="#6b5530" backgroundColor="#221b13" paddingX={1} flexDirection="column">
+    <Box borderStyle="single" borderColor="#718775" backgroundColor="#1c2e2b" paddingX={1} flexDirection="column">
+      <Text color="#e0c78f" weight="semibold">PATCHHAVEN · {home?.run.name ?? 'Home'}</Text>
+      <Text color={HERO_COLORS[HEROES.indexOf(profile?.hero ?? 'wizard')]} size="caption">
+        {profile?.name ?? 'Claude'} · {profile?.hero ?? 'wizard'} · {home ? settlementOf(home.landmarks).title : 'Wayfinder'}
+      </Text>
       <Box justifyContent="space-between">
         <Text>
           <Text weight="semibold" color="#ffcc33">⚒ Coding {level} </Text>
@@ -604,30 +768,34 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
           <Text color="#5a4a2e">{'▱'.repeat(bar - filled)}</Text>
         </Text>
         <Text color="#b8a27a" tabular size="caption">
-          {turn ? `⏱ ${clock} · ` : ''}
+          {liveTurn ? `⏱ ${clock} · ` : ''}
           {total.toLocaleString()} xp
         </Text>
       </Box>
-      <Text color="#8a7a5a" size="caption">
+      <Text color="#b9c3ac" size="caption">
         {level < 99 ? `${(to - total).toLocaleString()} to ${level + 1}` : 'max level'} · {session.edits} edit{session.edits === 1 ? '' : 's'} · {session.files.length} file{session.files.length === 1 ? '' : 's'} · {session.quests} quest{session.quests === 1 ? '' : 's'}
         {banked ? ` · ${banked.total} banked` : ''}
         {session.add ? <Text color="#73c991">{`  +${session.add.toLocaleString()}`}</Text> : null}
         {session.del ? <Text color="#f14c4c">{` −${session.del.toLocaleString()}`}</Text> : null}
       </Text>
+      {home && <Text color="#9cbca8" size="caption">{settlementOf(home.landmarks).stage} · {home.landmarks.length}/6 landmarks · +{session.xp ?? 0} XP this visit</Text>}
+      {home?.saveError && <Text color="#e4bd8a" size="caption">Progress is live for this visit; saving is unavailable.</Text>}
       {failed && (
         <Text color={failed.error === 'rate_limit' ? '#ff5b5b' : '#c8c8ce'} weight="semibold">
           {failed.error === 'rate_limit' ? '⚡ Out of run energy · usage limit reached' : `⚠ Stopped · ${FAILURES[failed.error] ?? failed.error}`}
         </Text>
       )}
       {crew.map(([agent, act]) => {
-        const index = agent === '0' ? 0 : 1 + ((Number(agent) - 1) % (CREW.length - 1))
+        const hero = HEROES.indexOf(profile?.hero ?? 'wizard')
+        const cast = [0, 1, 2, 3].filter(i => i !== hero)
+        const index = agent === '0' ? hero : cast[(Number(agent) - 1) % cast.length]!
         const who = CREW[index]!
         const job = agent === '0' ? '' : tasks[loops[Number(agent)] ?? '']
 
         return (
           <Box key={`who${agent}`}>
             <Text color={AGENT_COLORS[Number(agent) % AGENT_COLORS.length]} weight="medium">
-              {who.glyph} {who.name}
+              {who.glyph} {agent === '0' ? profile?.name ?? 'Claude' : who.name}
             </Text>
             {job ? (
               <Text color="#8a7a5a" size="caption" wrap="truncate-end">
@@ -637,6 +805,7 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
             ) : null}
             <Text color="#b8a27a" mono size="caption" wrap="truncate-start">
               {'  '}
+              {waiting[agent] !== undefined ? 'Needs you · ' : act.isActive ? 'Working · ' : runningIndexes.has(agent) && !liveTurn ? 'In background · ' : ''}
               {whereOf(agent, act)}
             </Text>
           </Box>
@@ -645,12 +814,79 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
     </Box>
   )
 
+  const navigation = (
+    <Box flexDirection="column">
+      <Box gap={1}>
+        {(['world', 'focus', 'journal'] as const).map(view => <Button key={`view-${view}`} label={`${profile?.view === view ? '● ' : ''}${view[0]!.toUpperCase()}${view.slice(1)}`} plain onPress={() => setProfile($, { view })} />)}
+      </Box>
+      <Box gap={1}>
+        <Button key="hero-cycle" label={`Hero: ${profile?.hero ?? 'wizard'}`} plain onPress={() => setProfile($, { hero: HEROES[(HEROES.indexOf(profile?.hero ?? 'wizard') + 1) % HEROES.length]! })} />
+        <Button key="motion-toggle" label={`Motion: ${profile?.motion === false ? 'off' : 'on'}`} plain onPress={() => setProfile($, { motion: profile?.motion === false })} />
+      </Box>
+    </Box>
+  )
+
+  const crewPanel = roster.length > 0 && <Box flexDirection="column" borderStyle="single" borderColor="#617b70" paddingX={1}>
+    <Button
+      key="crew-toggle"
+      label={`${liveTurn ? 'Crew' : 'Background crew'} · ${runningCrew.length} running · ${roster.length} tracked ${expandedCrew ? '▴' : '▾'}`}
+      plain
+      onPress={() => update($, crewExpanded, open => !open).then(() => undefined)}
+    />
+    {expandedCrew && roster.map(agent => {
+      const who = agent.name || agent.type || `Agent ${agent.index}`
+      const detail = agent.description || tasks[agent.id] || 'Working on a task'
+      const location = acts[String(agent.index)] ? whereOf(String(agent.index), acts[String(agent.index)]!) : 'Guild Hall'
+      const state = agent.status === 'running' ? liveTurn ? 'Running' : 'Running in background' : agent.status === 'failed' ? 'Failed' : agent.status === 'killed' ? 'Stopped' : 'Complete'
+      const color = agent.status === 'running' ? '#9bc9a3' : agent.status === 'failed' ? '#e6a18b' : '#b9c3ac'
+      return <Box key={`task-${agent.id}`} flexDirection="column">
+        <Text color={color} weight="medium" wrap="truncate-end">{state} · {who} · {location}</Text>
+        <Text color="#d2d2c2" size="caption" wrap="truncate-end">{detail}</Text>
+      </Box>
+    })}
+  </Box>
+
+  if (profile?.view === 'journal' && home) {
+    const visits = [home.run, ...home.history]
+    const visit = visits[home.journalIndex] ?? home.run
+    return <Box flexDirection="column" gap={1}>
+      {header}{navigation}{crewPanel}
+      <Text weight="semibold" color="#dfc68b">Settlement landmarks</Text>
+      {LANDMARKS.map(m => {
+        const earned = home.landmarks.find(l => l.id === m.id)
+        return <Box key={`landmark-${m.id}`} flexDirection="column">
+          <Text color={earned ? '#b9d3b2' : '#bdc2b6'}>{earned ? '◆' : '◇'} {m.name}</Text>
+          <Text color="#b9c3ac" size="caption">{earned ? `${new Date(earned.at).toLocaleDateString()} · ${earned.evidence}` : m.goal}</Text>
+        </Box>
+      })}
+      <Text weight="semibold" color="#dfc68b">{home.journalIndex === 0 ? 'This visit' : `Visit · ${new Date(visit.startedAt).toLocaleString()}`}</Text>
+      <Text size="caption">{visit.totals.edits} edits · {visit.totals.quests} plans · {visit.totals.checks} successful checks · {visit.totals.crew} crew · +{visit.totals.xp} XP</Text>
+      <Box gap={1}>
+        <Button key="visit-newer" label="← Newer" plain dimColor={home.journalIndex === 0} onPress={() => update($, haven, s => s ? { ...s, journalIndex: Math.max(0, s.journalIndex - 1) } : s).then(() => undefined)} />
+        <Button key="visit-older" label="Older →" plain dimColor={home.journalIndex >= visits.length - 1} onPress={() => update($, haven, s => s ? { ...s, journalIndex: Math.min(visits.length - 1, s.journalIndex + 1) } : s).then(() => undefined)} />
+        <Button key="visit-replay" label="Watch visit" plain onPress={async () => { const result = await runHavenCommand($, 'replay'); if (result.text !== 'Patchhaven opened.') $.ui.toast(result.text) }} />
+      </Box>
+      {!visit.events.length && <Text color="#b9c3ac">Your journal begins when Claude reads or edits a file. Nothing to claim or manage.</Text>}
+      {[...visit.events].reverse().map(event => <Text key={`beat-${event.seq}`} size="caption" color={event.kind === 'check' && !event.ok ? '#e6a18b' : '#d6d8c8'}>{new Date(event.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {eventText(event)}</Text>)}
+      <Text color="#b9c3ac" size="caption">Latest 24 visits · up to 48 recorded beats per visit. Landmarks stay earned.</Text>
+    </Box>
+  }
+
+  const replayNotice = playback && <Box flexDirection="column" borderStyle="single" borderColor="#9eb9b0" paddingX={1}>
+    <Text color="#bcdbd1">{home?.replay?.finished ? 'Replay finished' : 'Recorded visit'} · {(home?.replay?.index ?? 0) + 1}/{playback.run.events.length}</Text>
+    <Text size="caption">{eventText(playback.event)}</Text>
+    <Button key="return-live" label="Return to live work" plain onPress={async () => { await runHavenCommand($, 'live') }} />
+  </Box>
+
   // The terminal has no real Svg: its table stands one in that draws only the alt text.
   const Svg = e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : undefined
   if (!Svg) {
     return (
       <Box flexDirection="column" gap={1}>
         {header}
+        {navigation}
+        {crewPanel}
+        {replayNotice}
         {plan.length > 0 && (
           <Box flexDirection="column">
             <Text weight="semibold" color="#ffcc33">
@@ -669,36 +905,47 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
   }
 
   const width = Math.max(300, Math.min(560, (e.props.bodyColumns ?? 40) * 8))
+  let rooms = roomsOf(touched, playback ? {} : git, Object.values(acts).map(a => a.file))
+  const backgroundAgentIndexes = !playback && !liveTurn ? [...runningIndexes] : []
+  const focusPath = liveTurn ? acts[0]?.file : runningCrew.map(a => acts[String(a.index)]?.file).find(file => file && !file.startsWith('#')) ?? acts[0]?.file
+  if (profile?.view === 'focus') rooms = [rooms.find(r => r.desks.some(d => d.path === focusPath)) ?? rooms[0]].filter((r): r is NonNullable<typeof r> => Boolean(r))
+  const sceneKey = `${profile?.view}:${playback?.run.id ?? 'live'}`
+  if (lastSceneKey !== sceneKey) { lastSpots = {}; lastSceneKey = sceneKey }
   const drawn = drawRooms({
-    rooms: roomsOf(touched, git),
+    haven: home ? { hero: home.profile.hero, landmarks: home.landmarks, motion: home.profile.motion } : undefined,
+    backgroundAgents: playback ? [] : backgroundAgentIndexes,
+    rooms,
     activity: acts,
     from: lastSpots,
     now: Date.now(),
     isTurn: turn,
     width: Math.round(width / SCALE),
     paneWidth: width,
-    steps: plan,
-    levelUp: (await read($, levelUp)) ?? undefined,
-    drops: await read($, drops),
-    spawns: await read($, spawns),
-    splats: await read($, splats),
+    steps: playback ? [] : plan,
+    levelUp: playback ? undefined : (await read($, levelUp)) ?? undefined,
+    drops: playback ? {} : await read($, drops),
+    spawns: playback ? {} : await read($, spawns),
+    splats: playback ? {} : await read($, splats),
     departs: gone,
-    compactAt: (await read($, compactAt)) ?? undefined,
-    asking: await read($, asking),
+    compactAt: playback ? undefined : (await read($, compactAt)) ?? undefined,
+    asking: waiting,
     failure: failed ?? undefined,
-    stoppedAt: (await read($, stoppedAt)) ?? undefined,
-    bank: banked ?? undefined,
+    stoppedAt: playback ? undefined : (await read($, stoppedAt)) ?? undefined,
+    bank: playback ? undefined : banked ?? undefined,
   })
   lastSpots = drawn.spots
 
   return (
     <Box flexDirection="column" gap={1}>
       {header}
+      {navigation}
+      {crewPanel}
+      {replayNotice}
       {/* Drawn as an image, not interactive: an interactive Svg is a frame
           the app rebuilds on every redraw, which flashed white. Its SMIL
           animations run the same either way. Scaled to the pane's width: the
           narrower the scene came out, the closer the zoom. */}
-      <Svg key="scene" source={drawn.svg} width={width} height={Math.round((drawn.height * width) / drawn.width)} alt="Workbench: rooms and agents at work" />
+      <Svg key="scene" source={drawn.svg} width={width} height={Math.round((drawn.height * width) / drawn.width)} alt={`Patchhaven: ${profile?.view === 'focus' ? 'focused file room' : 'homestead, file rooms and crew at work'}${playback ? ' (recorded visit)' : ''}`} />
     </Box>
   )
 }

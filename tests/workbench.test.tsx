@@ -30,7 +30,7 @@ function world($: Parameters<Parameters<typeof test>[1]>[0], on: Parameters<Para
   // A commit answers the way git does, so the bank can count its files.
   on('tool.call', (_, e) => ({
     result: 'ok',
-    text: String((e as { command?: string }).command ?? '').startsWith('git commit') ? '[main 1a2b3c] msg\n 2 files changed, 3 insertions(+)' : 'ok',
+    text: String((e as { command?: string }).command ?? '').startsWith('git commit') ? '[main 1a2b3c4] msg\n 2 files changed, 3 insertions(+)' : 'ok',
   }))
 
   return clock
@@ -50,8 +50,8 @@ test('the scene shows quests, rooms and the Coding level, and an edit earns XP',
   expect(texts).toContain('18 xp')
   const scene = await ui.find({ type: 'Svg' })
   const svg = String((scene as unknown as { props: { source: string } }).props.source)
-  expect(svg).toContain('Quest Hall')
-  // The quest is on the Quest Hall's board, in the scene.
+  expect(svg).toContain('Guild Hall')
+  // The quest is on the Guild Hall's board, in the scene.
   expect(svg).toContain('Ship the rooms')
   expect(texts).toContain('Claude')
   expect(svg).toContain('Engine.java')
@@ -170,7 +170,7 @@ test('a failed XP save preserves the successful edit and its XP feedback', async
   await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
   const ran = await $.tool.call({ tool: 'Edit', file_path: 'C:\\proj\\src\\Engine.java', old_string: 'a', new_string: 'b\nc' })
   expect(ran.result).toBe('ok')
-  expect(saves).toBe(2)
+  expect(saves).toBe(4)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')
   expect(texts).toContain('18 xp')
@@ -202,7 +202,7 @@ test('between turns, Claude rests at the Inn and dozes off later', async ($, on)
   await ui.unmount()
 })
 
-test('every surface shows the quests: on the Quest Hall board, or as text in a terminal', async ($, on) => {
+test('every surface shows the quests: on the Guild Hall board, or as text in a terminal', async ($, on) => {
   world($, on)
   await $.session.start({ cwd: 'C:\\proj', surface: 'terminal', isInteractive: true })
   await $.tool.call({ tool: 'mcp__ccd_turn__update_plan', items: [{ content: 'Ship the rooms', status: 'pending' }] } as never)

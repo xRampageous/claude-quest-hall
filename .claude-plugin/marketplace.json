@@ -1,6 +1,6 @@
 {
   "name": "claude-quest-hall",
-  "description": "The Workbench: an OSRS-style world showing Claude's coding activity, quests and agents.",
+  "description": "Patchhaven: a living map of Claude's file work, background crew, settlement and private journal.",
   "owner": { "name": "xRampageous" },
   "plugins": [{ "name": "task-board", "source": "./" }]
 }

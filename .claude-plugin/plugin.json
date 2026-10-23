@@ -1,7 +1,7 @@
 {
   "name": "task-board",
-  "version": "1.2.0",
-  "description": "The Workbench: an OSRS-style world beside the chat. Claude is a wizard working at desks in themed rooms, with quests, Coding XP, subagents, tests, commits and session stats. /board opens it.",
+  "version": "2.0.0",
+  "description": "Patchhaven: Claude's live file rooms and desks with a growing settlement, background crew roster and private work journal. Open it with /haven or /board.",
   "author": {
     "name": "xRampageous"
   },

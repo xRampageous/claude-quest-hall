@@ -1,6 +1,9 @@
 import type { Activity, Bank, Change, Drop, Failure, Splat, Step, Touch } from '../types'
 import { CHAIR, CHARACTERS, DESK, ICONS, MONITOR, PLANT, ROOMS } from './art'
 import type { Sprite } from './art'
+import { HEROES } from './haven'
+import type { Hero, Landmark } from './haven'
+import { homestead } from './homestead'
 
 // The Workbench scene, codemap-style: a Quest Hall with Claude's steps on
 // its board, then each folder in play as a themed room, each file a desk,
@@ -15,9 +18,9 @@ export type Room = { name: string; desks: Desk[] }
 const AGENT_COLORS = ['#D97757', '#22d3ee', '#e879f9', '#4ade80', '#facc15', '#60a5fa']
 const READ_COLOR = '#a78bfa'
 const GIT_COLORS: Record<Change['code'], string> = { M: '#e2c08d', A: '#73c991', U: '#73c991', D: '#f14c4c', R: '#4fc1ff' }
-const GOLD = '#f5c518'
+const GOLD = '#d9bd78'
 
-const GAP = 6
+const GAP = 10
 const WALL = 18
 // One desk's cell: the character, the desk in front of it, its name plate.
 const DESK_W = 56
@@ -70,7 +73,7 @@ function themeOf(name: string): number {
 export const FORGE = 'Forge'
 const FORGE_THEME = 3
 
-export function roomsOf(touched: readonly Touch[], changes: Readonly<Record<string, Change>>): Room[] {
+export function roomsOf(touched: readonly Touch[], changes: Readonly<Record<string, Change>>, important: readonly string[] = []): Room[] {
   const rooms = new Map<string, Room>()
   for (const t of touched) {
     const cut = t.path.lastIndexOf('/')
@@ -81,10 +84,14 @@ export function roomsOf(touched: readonly Touch[], changes: Readonly<Record<stri
   }
 
   // The Forge first: what is being made leads the scene.
-  return [...rooms.values()]
+  const ordered = [...rooms.values()]
     .sort((a, b) => Number(b.name === FORGE) - Number(a.name === FORGE))
-    .slice(0, MAX_ROOMS)
-    .map(r => ({ ...r, desks: r.desks.slice(0, MAX_DESKS) }))
+  const priority = new Set(important)
+  const selected = new Set([...new Set([...ordered.filter(r => r.desks.some(d => priority.has(d.path))), ...ordered])].slice(0, MAX_ROOMS))
+  return ordered.filter(r => selected.has(r)).map(r => {
+    const desks = new Set([...new Set([...r.desks.filter(d => priority.has(d.path)), ...r.desks])].slice(0, MAX_DESKS))
+    return { ...r, desks: r.desks.filter(d => desks.has(d)) }
+  })
 }
 
 // The Forge's furnace and anvil, 26 wide and 20 tall, their base at y: the
@@ -115,11 +122,11 @@ function room(id: string, x: number, y: number, w: number, h: number, theme: num
   const px = x + w - plateW - 4
 
   return (
-    `<clipPath id="${id}"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="5"/></clipPath>` +
+    `<clipPath id="${id}"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2"/></clipPath>` +
     `<g clip-path="url(#${id})"><rect x="${x}" y="${y}" width="${w}" height="${h}" fill="url(#floor${theme})"/>` +
     `<rect x="${x}" y="${y}" width="${w}" height="${WALL}" fill="url(#wall${theme})"/>` +
     `<rect x="${x}" y="${y + WALL}" width="${w}" height="2" fill="#00000066"/></g>` +
-    `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="5" fill="none" stroke="#1b1b24" stroke-width="2"/>` +
+    `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2" fill="none" stroke="#8c8964" stroke-width="1.2"/>` +
     `<rect x="${px}" y="${y + 3}" width="${plateW}" height="12" rx="2" fill="#1b1b24e6" stroke="${t.accent}" stroke-width="0.8"/>` +
     `<text x="${px + 5}" y="${y + 12}" font-size="8.5" font-weight="700" fill="${t.accent}">${esc(label)}</text>`
   )
@@ -140,6 +147,8 @@ const INN_W = 96
 const DOZE_AFTER = 120
 
 export type Scene = {
+  haven?: { hero: Hero; landmarks: readonly Landmark[]; motion: boolean }
+  backgroundAgents?: readonly string[]
   rooms: readonly Room[]
   activity: Readonly<Record<string, Activity>>
   from: Readonly<Record<string, { x: number; y: number }>>
@@ -207,6 +216,9 @@ function chest(x: number, y: number): string {
 
 export function drawRooms(scene: Scene): { svg: string; width: number; height: number; spots: Record<string, { x: number; y: number }> } {
   const { activity, from, now, isTurn, width: maxWidth, steps, drops, levelUp, spawns, bank, splats, departs, compactAt } = scene
+  const backgroundAgents = new Set(scene.backgroundAgents ?? [])
+  const hero = HEROES.indexOf(scene.haven?.hero ?? 'wizard')
+  const cast = [0, 1, 2, 3].filter(i => i !== hero)
   // Where the chest sits, for the coins a commit sends into it.
   let chestAt = { x: 0, y: 0 }
   // Thinking at the start of a turn, before any tool:
@@ -215,20 +227,26 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
   // Only at the very start of a turn, before Claude has done anything: once
   // it is working, it thinks at its desk and visits the hall for the quests alone.
   const isPondering = isTurn && !claude
-  // Between turns, waiting for a prompt: Claude rests at the Inn, first in
-  // the scene, and the last turn's rooms stay up with their desks quiet.
+  // Between turns, Claude rests at the Inn while background agents remain at
+  // their last file or the Terminal.
   const isResting = !isTurn
-  const atTerminal = isResting ? [] : Object.entries(activity).filter(([, a]) => a.file === '#terminal').map(([k]) => k)
+  const atTerminal = Object.entries(activity).filter(([k, a]) => a.file === '#terminal' && (!isResting || backgroundAgents.has(k))).map(([k]) => k)
   const rooms: readonly Room[] = isResting
-    ? [{ name: INN, desks: [] }, ...scene.rooms]
+    ? [{ name: INN, desks: [] }, ...(atTerminal.length ? [{ name: TERMINAL, desks: [] }] : []), ...scene.rooms]
     : atTerminal.length
       ? [...scene.rooms.filter(r => r.name === FORGE), { name: TERMINAL, desks: [] }, ...scene.rooms.filter(r => r.name !== FORGE)]
       : scene.rooms
   const acting: Readonly<Record<string, Activity>> = isResting
-    ? { 0: { tool: '', file: '#inn', at: now, isActive: false, isEdit: false } }
+    ? {
+        0: { tool: '', file: '#inn', at: now, isActive: false, isEdit: false },
+        ...Object.fromEntries([...backgroundAgents].filter(agent => activity[agent]).map(agent => [agent, activity[agent]!])),
+      }
     : isPondering
       ? { ...activity, 0: { tool: '', file: '#hall', at: now, isActive: false, isEdit: false } }
       : activity
+  const visibleActors = Object.entries(acting)
+    .sort(([a, aa], [b, bb]) => a === '0' ? -1 : b === '0' ? 1 : Number(bb.isActive) - Number(aa.isActive) || bb.at - aa.at)
+    .slice(0, MAX_AGENTS)
   // Each room is as wide as its desks need (and its name plate), and rooms
   // are packed side by side into shelves, at most the widest the pane allows.
   const widest = maxWidth - GAP * 2
@@ -264,6 +282,7 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
     symbol('stuck', ICONS.stuck, ICONS.stuck.svg),
     symbol('idle', ICONS.idle, ICONS.idle.svg),
     symbol('xp', ICONS.xp, ICONS.xp.svg),
+    ...(scene.haven ? [symbol(`c${hero}f0`, CHARACTERS[hero]!, CHARACTERS[hero]!.frames[0]!)] : []),
   ])
   // Drawn in layers: rooms, then characters, then the desks in front of
   // them, then names, XP and bubbles on top of everything.
@@ -274,13 +293,18 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
   // Where each desk's character stands, and the room it is in, to keep its bubble inside.
   const deskAt = new Map<string, { x: number; y: number; left: number; right: number }>()
   let y = GAP
+  if (scene.haven) {
+    const home = homestead(width, scene.haven.landmarks, hero)
+    floors.push(home.svg)
+    y = home.height + GAP
+  }
 
   // The Quest Hall: the quest board, the chest, and where agents think, test
   // and search. The board's text is sized against the zoom, so it is always
   // about 11px on screen, and long steps wrap rather than being cut.
   {
     // Agents thinking, testing or searching stand in the hall, right of the board.
-    const hallAgents = Object.entries(acting)
+    const hallAgents = visibleActors
       .filter(([, a]) => a.file === '#hall')
       .map(([k]) => k)
     const w = width - GAP * 2
@@ -308,7 +332,7 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
     hallAgents.forEach((k, n) => deskAt.set(`#hall@${k}`, { x: GAP + w - 20 - n * 34, y: y + hallH - FEET - 4, left: GAP + w - 34 * hallAgents.length - 40, right: GAP + w }))
     defs.add(tile(`floor${HALL_THEME}`, ROOMS[HALL_THEME]!.floor, 2))
     defs.add(tile(`wall${HALL_THEME}`, ROOMS[HALL_THEME]!.wall))
-    floors.push(room('hall', GAP, y, w, hallH, HALL_THEME, 'Quest Hall'))
+    floors.push(room('hall', GAP, y, w, hallH, HALL_THEME, 'Guild Hall'))
     // The chest on the hall's wall, with this session's banked files beside it.
     chestAt = { x: GAP + 6, y: y + 3 }
     floors.push(
@@ -566,9 +590,7 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
   const spots: Record<string, { x: number; y: number }> = {}
   // How many bubbles each room (by its left edge) has so far.
   const bubbled = new Map<number, number>()
-  Object.entries(acting)
-    .slice(0, MAX_AGENTS)
-    .forEach(([agent, act], order) => {
+  visibleActors.forEach(([agent, act], order) => {
       // A subagent that finished teleports out, and is gone after.
       const left = departs[agent]
       const isLeaving = left !== undefined && act.at <= left
@@ -577,12 +599,13 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
       if (!at) return
       spots[agent] = at
       // The wizard is Claude's alone; subagents take the rest of the cast in turn.
-      const index = agent === '0' ? 0 : 1 + ((Number(agent) - 1) % (CHARACTERS.length - 1))
+      const index = agent === '0' ? hero : cast[(Number(agent) - 1) % cast.length]!
       const ch = CHARACTERS[index] ?? CHARACTERS[0]!
       const scale = CHAR_H / ch.h
       const cw = ch.w * scale
       const top = FEET - CHAR_H
       const pondering = agent === '0' && isPondering
+      const background = backgroundAgents.has(agent)
       const applying = act.isActive && (act.isApply || act.mode === 'apply')
       const testing = act.mode === 'test' && act.isActive
       // At the Terminal: typing at the rune console while the command runs.
@@ -590,7 +613,7 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
       const searching = act.mode === 'web' && act.isActive
       // Reading the quests: at the Quest Hall's board, book open.
       const questing = act.mode === 'quests' && act.file === '#hall'
-      const pose = pondering || questing || searching ? [3, 4] : testing || commanding ? [1, 2] : act.isActive ? (act.isEdit ? [1, 2] : [3, 4]) : [0]
+      const pose = pondering || questing || searching || background ? [3, 4] : testing || commanding ? [1, 2] : act.isActive ? (act.isEdit ? [1, 2] : [3, 4]) : [0]
       for (const f of pose) defs.add(symbol(`c${index}f${f}`, ch, ch.frames[f] ?? ''))
       const frame = (f: number) => use(`c${index}f${f}`, -cw / 2, top, cw, CHAR_H)
       const body =
@@ -606,13 +629,13 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
                 `<rect x="${-cw / 2 + ex * scale}" y="${top + WIZARD_EYE_ROW * scale}" width="${2 * scale}" height="${2 * scale}" fill="${WIZARD_SKIN}" opacity="0">` +
                 `<animate attributeName="opacity" values="0;0;1;0" keyTimes="0;0.94;0.97;1" dur="${4 + order * 0.7}s" repeatCount="indefinite"/>` +
                 // Dozing by the fire: the eyes close and stay closed.
-                `${isResting ? `<set attributeName="opacity" to="1" begin="${DOZE_AFTER}s"/>` : ''}</rect>`,
+                `${isResting && agent === '0' ? `<set attributeName="opacity" to="1" begin="${DOZE_AFTER}s"/>` : ''}</rect>`,
             ).join('')
           : ''
       const color = AGENT_COLORS[Number(agent) % AGENT_COLORS.length]
       const waiting = scene.asking[agent] !== undefined
       const idle = !act.isActive && isTurn && now - act.at > 120_000
-      const thinking = !testing && !searching && !questing && !commanding && (pondering || (isTurn && !act.isActive && !idle))
+      const thinking = !testing && !searching && !questing && !commanding && (pondering || background || (isTurn && !act.isActive && !idle))
       const drop = drops[act.file]
       const hopped = drop && now - drop.at < 1500
       const was = from[agent]
@@ -690,7 +713,7 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
             : scene.stoppedAt !== undefined && now - scene.stoppedAt < 60_000
               ? 'stopped'
               : 'ready for a quest'
-      const full = isResting ? restLine : commanding ? act.tool : applying ? '✦ apply' : testing ? '⚔ tests' : searching ? '⌕ search' : questing ? '📜 quests' : waiting ? 'needs you' : idle ? 'idle' : thinking ? '' : `${act.isNew ? '✚' : act.isEdit ? '✎' : '◉'} ${clip(act.file.slice(act.file.lastIndexOf('/') + 1), 12)}`
+      const full = isResting && agent === '0' ? restLine : commanding ? act.tool : applying ? '✦ apply' : testing ? '⚔ tests' : searching ? '⌕ search' : questing ? '📜 quests' : waiting ? 'needs you' : idle ? 'idle' : thinking ? '' : `${act.isNew ? '✚' : act.isEdit ? '✎' : '◉'} ${clip(act.file.slice(act.file.lastIndexOf('/') + 1), 12)}`
       // Shortened to fit a narrow room.
       const fits = Math.max(3, Math.floor((at.right - at.left - 14 - (icon ? 11 : 0)) / 4.6))
       const label = clip(full, fits)
@@ -718,11 +741,11 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
       overlays.push(
         `<g transform="translate(${at.x} ${at.y})">${walk}<g>${waiting || idle ? `<animateTransform attributeName="transform" type="translate" values="0 0;0 -4;0 0" dur="0.7s" repeatCount="indefinite"/>` : ''}`,
         // At rest, the bubble fades once the wizard dozes off, and Zz rise instead.
-        `<g>${isResting ? `<set attributeName="opacity" to="0" begin="${DOZE_AFTER}s"/>` : ''}`,
+        `<g>${isResting && agent === '0' ? `<set attributeName="opacity" to="0" begin="${DOZE_AFTER}s"/>` : ''}`,
         `<rect x="${bx}" y="${by}" width="${bw}" height="12" rx="6" fill="#0b0f19" stroke="${icon ? GOLD : color}" stroke-width="1"/>`,
         inside,
         `</g>`,
-        isResting
+        isResting && agent === '0'
           ? `<g opacity="0"><set attributeName="opacity" to="1" begin="${DOZE_AFTER}s"/>` +
             `<g>${use('idle', 4, top - 6, 9, 9)}<animateTransform attributeName="transform" type="translate" from="0 0" to="5 -16" dur="2.4s" begin="${DOZE_AFTER}s" repeatCount="indefinite"/>` +
             `<animate attributeName="opacity" values="1;0" dur="2.4s" begin="${DOZE_AFTER}s" repeatCount="indefinite"/></g></g>`
@@ -751,16 +774,19 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
   }
 
   const height = Math.max(y, 40)
-  const svg =
+  let svg =
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" font-family="ui-monospace,Menlo,Consolas,monospace">` +
     `<defs>${[...defs].join('')}</defs>` +
     // A dark backdrop, so nothing white ever shows between redraws.
-    `<rect width="${width}" height="${height}" fill="#1b1b1f"/>` +
+    `<rect width="${width}" height="${height}" fill="#213b32"/>` +
+    `<path d="M${width / 2} 0V${height}" fill="none" stroke="#9c8b69" stroke-width="5" opacity="0.6"/>` +
     floors.join('') +
     bodies.join('') +
     furniture.join('') +
     overlays.join('') +
     `</svg>`
+
+  if (scene.haven?.motion === false) svg = svg.replace(/<(?:animate|animateTransform|set)\b[^>]*\/>/g, '')
 
   return { svg, width, height, spots }
 }
