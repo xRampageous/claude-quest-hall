@@ -21,7 +21,7 @@ If your Claude settings still register the old marketplace as
 repository matches the existing entry:
 
 ```powershell
-cd "C:\\path\\to\\your\\project"
+cd "C:\path\to\your\project"
 npx --yes @anthropic-ai/claude-code@2.1.309 plugin install task-board --marketplace xRampageous/claude-quest-hall#feat/patchhaven-v2 --scope project
 ```
 
