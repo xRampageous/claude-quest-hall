@@ -52,21 +52,19 @@ starts earning XP from activity after this version is installed.
 
 ## The living map
 
-The **Patch Trail** is one timber guild hall with a continuous wall and floor.
-Its Patchboard is mounted above the work floor, the hearth is where Claude rests
-between turns, and the Terminal appears for shell work. Background agents with
-no current file meet at the Crew Lodge; active workers move to their file
-district or the Terminal, and the roster keeps their task, state and last known
-place visible. Up to six file districts use workstations that fit their role:
-coding desks, a test dummy and check table, a reading nook, or the Forge anvil.
-The map gives each room enough floor space for its furniture and workers, then
-adds districts as they become active. Furniture and character sizes scale with
-the room, while a wider label gutter keeps the Patchboard clear. Characters
-type at edit stations and read while reviewing or waiting on an assignment;
-their poses, occupied stations and crew markers animate at staggered intervals.
-Fire, forge embers, terminal cursors and the route marker move too. The Motion
-setting pauses every animation, and earned landmarks light the hall's progress
-marks.
+The **Patch Trail** follows Claude in a panoramic Agent Quest scene for the
+current activity, then shows a short trail of nearby stations in order of
+attention. The guild hall is camp and the Patchboard; a glitch pit is the
+Terminal, a sky forge is implementation, catacombs are tests and an athenaeum
+is documentation. Other project folders choose from the remaining landscapes.
+Dark sign plates keep each station's file and status readable over its scene.
+Claude and the background crew move to the room that matches their real
+activity; Agent Quest sprites walk between places, work at active stations and
+idle at camp. The Trail keeps the current work prominent, while **Focus**
+zooms in on one worker and **Crew** keeps delegated tasks and their last known
+location close at hand. The rooms, labels and characters scale together for
+narrow or wide panes, with **comfortable** and **large** zoom settings. The
+Motion setting pauses all animations.
 
 The HUD keeps your hero, Coding level, XP, edits, files and quest progress beside
 the map. **Trail**, **Focus** and **Log** move between the project, a selected
@@ -142,5 +140,7 @@ scenes in **More** show how those activities appear on the map.
 
 ## Art
 
-The hall, workstations and characters use original SVG and pixel-grid art. The
-small chimes are synthesized bell tones.
+Agent Quest's MIT-licensed room backgrounds and first-tier character sprites
+are bundled with their license notice in `assets/agent-quest/`. Patchhaven's
+station signs, map, interface and animations are original. The small chimes are
+synthesized bell tones.

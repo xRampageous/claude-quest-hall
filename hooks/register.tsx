@@ -2,16 +2,17 @@ import { atom, read, update } from 'claude-code'
 import type { Register, EngineInterface, RenderInput } from 'claude-code'
 
 import type { Activity, CrewAgent, Failure, Step, Touch } from '../types'
-import { CHARACTERS, svgOf } from './art'
 import { readChanges } from './git'
 import { drawRooms, roomsOf } from './rooms'
 import type { Room } from './rooms'
+import { AGENT_QUEST_SPRITES } from './agentquest-sprites'
 import { absoluteFile, earnedRewards, eventText, HEROES, HERO_COLORS, LANDMARKS, recapText, relativeFile, replayFrame, REWARDS, settlementOf, skillLevel, SKILLS } from './haven'
 import type { HavenSize, HavenView, VisitRecap } from './haven'
 import { advanceReplay, initHaven, recordHaven, saveRecap, setProfile } from './haven-state'
 
 const PANE = 'task-board'
-const PATCHHAVEN_VERSION = '2.2.4'
+const PATCHHAVEN_VERSION = '2.2.5'
+const AGENT_QUEST_ROLES = ['mage', 'rogue', 'ranger', 'sage'] as const
 // Whether Patchhaven takes over the app's own task list under each message.
 const OWN_PLAN_KEY = 'ownPlan'
 let ownsPlan = true
@@ -924,8 +925,6 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
   const navigation = (
     <Box gap={1}>
       {(['world', 'focus', 'journal', 'skills', 'settings'] as const).map(view => <Button key={`view-${view}`} label={`${profile?.view === view ? '◆ ' : ''}${view === 'world' ? 'Trail' : view === 'journal' ? 'Log' : view === 'skills' ? 'Skills' : view === 'settings' ? 'More' : 'Focus'}`} plain onPress={() => setProfile($, { view })} />)}
-      <Button key="hero-cycle" label={profile?.hero ?? 'wizard'} plain onPress={() => setProfile($, { hero: HEROES[(HEROES.indexOf(profile?.hero ?? 'wizard') + 1) % HEROES.length]! })} />
-      <Button key="motion-toggle" label={profile?.motion === false ? 'Motion off' : 'Motion on'} plain onPress={() => setProfile($, { motion: profile?.motion === false })} />
     </Box>
   )
 
@@ -946,17 +945,17 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
       const color = needsApproval || agent.status === 'failed' ? '#e6a18b' : agent.status === 'running' ? '#9bc9a3' : '#b9c3ac'
       const hero = HEROES.indexOf(profile?.hero ?? 'wizard')
       const cast = [0, 1, 2, 3].filter(index => index !== hero)
-      const character = CHARACTERS[cast[(Math.max(1, agent.index) - 1) % cast.length] ?? 0]!
+      const role = AGENT_QUEST_ROLES[cast[(Math.max(1, agent.index) - 1) % cast.length] ?? 0]!
       const age = act?.at ? Math.max(0, Math.floor((Date.now() - act.at) / 1000)) : undefined
-      const seen = age === undefined ? 'Last seen: not yet on the map' : `Last seen ${age < 60 ? `${age}s ago` : `${Math.floor(age / 60)}m ago`}`
+      const seen = age === undefined ? 'not seen yet' : age < 60 ? `${age}s` : `${Math.floor(age / 60)}m`
       return <Box key={`task-${agent.id}`} flexDirection="row" gap={1}>
-        {Svg && <Svg source={svgOf(character.w, character.h, character.frames[0]!)} width={14} height={28} alt={`${who} Patchhaven character`} />}
+        {Svg && <Svg source={'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56"><image href="' + AGENT_QUEST_SPRITES[role]!.idle.south + '" width="56" height="56" image-rendering="pixelated"/></svg>'} width={18} height={24} alt={`${who} Agent Quest character`} />}
         <Box flexDirection="column">
           <Box flexDirection="row" gap={1}>
-            <Text color={color} size="caption">{state}</Text>
             <Button key={`agent-select-${agent.id}`} label={`${String(agent.index) === selectedCrewId ? '◆ ' : '◇ '}${who}`} plain onPress={async () => { await update($, selectedCrew, () => String(agent.index)); await setProfile($, { view: 'focus' }) }} />
+            <Text color={color} size="caption">· {state}</Text>
           </Box>
-          <Text color="#d2d2c2" size="caption" wrap="truncate-end">{location} · {seen} · {detail}</Text>
+          <Text color="#d2d2c2" size="caption" wrap="truncate-end">{location} · {detail} · {seen}</Text>
         </Box>
       </Box>
     })}
@@ -1004,6 +1003,7 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
         <Text color="#e0c782" weight="semibold">MAP SCALE</Text>
         <Box gap={1}>{(['auto', 'comfortable', 'large'] as const).map(size => <Button key={`scale-${size}`} label={`${profile.size === size ? '◆ ' : ''}${size}`} plain onPress={() => setProfile($, { size })} />)}</Box>
         <Box gap={1}>
+          <Button key="settings-hero" label={`Hero · ${profile.hero} · change`} plain onPress={() => setProfile($, { hero: HEROES[(HEROES.indexOf(profile.hero) + 1) % HEROES.length]! })} />
           <Button key="settings-motion" label={profile.motion ? 'Motion on' : 'Motion off'} plain onPress={() => setProfile($, { motion: !profile.motion })} />
           <Button key="settings-sound" label={isSoundOn ? 'Chimes on' : 'Chimes off'} plain onPress={async () => { const result = await runHavenCommand($, 'sound'); $.ui.toast(result.text) }} />
         </Box>

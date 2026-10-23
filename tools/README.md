@@ -49,6 +49,16 @@ Furniture and icons are pixel grids in `assets/workbench-art.json`. Room
 palettes live there; the renderer draws their walls and floors as larger,
 low-contrast SVG patterns so repeated tiles stay subtle.
 
+The live Patch Trail also uses curated Agent Quest rooms and sprites. The source
+art and its MIT license notice are in `assets/agent-quest/`. To regenerate the
+256×82 palette-limited background copies and embedded TypeScript data modules,
+run:
+
+```bash
+python tools/compact_agentquest_backgrounds.py
+python tools/generate_agentquest_art.py
+```
+
 Regenerate the living map example with `npx --yes tsx tools/render-preview.ts`.
 Pass a pane width, such as `304`, to inspect the narrow single-column layout.
 The renderer updates the SVG preview under `assets/`.
