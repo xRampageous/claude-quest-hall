@@ -1,10 +1,9 @@
 # Patchhaven
 
-Patchhaven turns a Claude Code session into a compact pixel-art RPG map. Claude
-walks between little work sites as files change, and the dotted trail links the
-places visited during the session. The familiar agent-game feel stays in view;
-the twist is that the world follows real folders, files, plans and background
-agents.
+Patchhaven turns a Claude Code session into a living pixel-art work map. Claude
+and the agent crew travel between districts based on real file activity, while
+the settlement grows as you read, build, test and collaborate. It keeps the
+compact OSRS-inspired feel of an agent RPG, with a world shaped by your project.
 
 ![Patchhaven preview showing the connected file trail and active crew](assets/patch-trail-preview.png)
 
@@ -18,7 +17,7 @@ For a fresh install from a terminal:
 npx --yes @anthropic-ai/claude-code@2.1.309 plugin install task-board --marketplace xRampageous/patchhaven --scope user
 ```
 
-To test the open Patchhaven v2 branch before it reaches the default branch:
+To test the current Patchhaven v2 branch before it reaches the default branch:
 
 ```powershell
 cd "C:\path\to\your\project"
@@ -33,10 +32,9 @@ npx --yes @anthropic-ai/claude-code@2.1.309 plugin update task-board@claude-ques
 
 Then run `/reload-plugins` and reopen the pane with `/haven`.
 
-The marketplace keeps the `claude-quest-hall` ID for existing installs.
-
-In Claude Desktop, click **+** beside the prompt box, choose **Plugins**, add
-the marketplace `xRampageous/patchhaven`, then install `task-board`.
+The marketplace keeps the `claude-quest-hall` ID for existing installs. In
+Claude Desktop, click **+** beside the prompt box, choose **Plugins**, add the
+marketplace `xRampageous/patchhaven`, then install `task-board`.
 
 The repository currently has no software license. Public visibility alone does
 not grant permission to reuse or redistribute the code.
@@ -49,62 +47,71 @@ npx --yes @anthropic-ai/claude-code@2.1.309 plugin update task-board@claude-ques
 
 The old marketplace name and `task-board` plugin ID stay in place so existing
 installs can update through GitHub's repository redirect. The public project
-and in-app name are Patchhaven. Your Coding XP carries over; the new journal
-starts recording from your next session.
+and in-app name are Patchhaven. Coding XP carries over. The new skill ledger
+starts earning XP from activity after this version is installed.
 
-## The Patch Trail
+## The living map
 
-The map is one connected field instead of a stack of room panels. Each changed
-folder becomes a small work site, with the current file and change count on its
-sign. Claude and up to three other agents move between those sites as activity
-changes. A Terminal hut represents commands and searches, the Patchboard holds
-the current plan, and new files appear in the Forge. Between turns Claude waits
-at camp; background agents stay at their last known files.
+The **Patch Trail** combines the camp, terminal, patchboard and up to six file
+districts in one connected scene. Districts keep stable positions as you switch
+between files. Buildings reflect their work: code districts grow houses, tests
+get a training yard, docs gain a library, and the Forge has a smithy. Earned
+landmarks become part of the camp scene. Claude and a visible crew travel
+between these sites; larger crews appear as a compact crowd count.
 
-The compact HUD keeps the hero, Coding level, XP, edit and file counts, quest
-count and landmark progress close to the map. **Trail**, **Focus** and **Log**
-switch between the whole work map, the active folder and a short visit journal.
-The six permanent landmarks track meaningful milestones without adding daily
-chores or rewards to claim.
+The HUD keeps your hero, Coding level, XP, edits, files and quest progress beside
+the map. **Trail**, **Focus** and **Log** move between the project, a selected
+worker's activity and the visit journal. The expandable **Crew** panel includes
+every known agent task, including reviewers that have not reached a file yet.
+It shows who is working, waiting between tools, running in the background,
+waiting for approval, finished or failed, plus their last known location.
+District cards switch to a single column in narrow panes to keep file names and
+work status readable; the scale setting can enlarge the map in wider panes.
 
-The expandable **Crew** strip sits below the map. It lists every known agent
-task, including reviewers that have not touched a file yet, with current status,
-description and last known location. Running tasks stay visible after Claude's
-foreground turn finishes; recent completed, failed and stopped tasks remain in
-the list. The map itself stays compact and draws up to four characters at once.
+## Three stages of progress
 
-## Progress and journal
+Real work earns persistent skill XP for **Crafting** (edits), **Research**
+(distinct file reads and web research), **Verification** (successful checks) and
+**Teamwork** (completed plans, commits and crew). Skills use the classic OSRS
+level curve. Repeating the same activity earns less XP, and each skill has a
+per-visit cap. Earned levels unlock wearable titles and relics shown on your
+hero and in the Skills ledger.
 
-Each project starts at camp. Meaningful work earns six permanent landmarks:
-the Patch Garden, Patchboard, Signal Mast, Dispatch Pennant, Crew Camp and
-Shared Workshop. Each has a clear activity goal and keeps a short evidence note
-when earned. There are no daily chores or rewards that need claiming.
+Plans follow a readable quest lifecycle: active steps can complete, be replaced,
+cancelled or pause when work is blocked. The Log records those outcomes beside
+file activity, checks, commits, crew and XP. At the end of a visit, Patchhaven
+keeps a short field report with touched files, successful and failed checks,
+completed quests, crew activity, XP and newly earned landmarks. It stores
+activity metadata, not prompts, tool arguments or source text. Detailed visit
+history is bounded; earned progress remains.
 
-The **Log** records file names, edit counts, quest and check outcomes, commits,
-crew activity and XP. It does not save prompts, tool input or source text. You
-can browse the latest 24 visits and replay a visit as a read-only scene; replay
-never runs tools or changes files. Older visits are pruned, while earned
-landmarks remain.
+The **More** view includes scale modes, motion and chime settings, diagnostics,
+and token-free sample scenes for edits, crew activity, approvals, failures and
+completed visits. A sample scene only changes what is displayed. Use **Return
+live** to go back to your project.
 
-Choose a wizard, knight, ranger or smith as your hero, give the hero a name,
-and turn animation on or off. The rest of the crew rotates through the other
+Choose a wizard, knight, ranger or smith as your hero, give them a name and
+equip any title you have earned. The rest of the crew rotates through the other
 appearances.
 
 ## Commands
 
 - `/haven` opens Patchhaven. `/board` is an alias.
-- `/haven world`, `/haven focus`, `/haven journal` switch between Trail, Focus
-  and Log views.
+- `/haven world`, `/haven focus`, `/haven journal`, `/haven skills` and
+  `/haven settings` select a view.
 - `/haven stats` (or `/haven recap`) shows this visit's progress.
-- `/haven hero wizard|knight|ranger|smith` changes your hero.
-- `/haven name <name>` names your hero.
-- `/haven replay` plays the selected journal visit; `/haven live` returns to
-  the current scene.
-- `/haven motion` toggles animation; `/haven sound` toggles permission and
-  turn-end chimes.
+- `/haven size auto|comfortable|large` sets map scale.
+- `/haven demo idle|edit|crew|approval|failure|complete` previews a sample scene;
+  `/haven demo off` returns to live activity.
+- `/haven hero wizard|knight|ranger|smith` changes your hero; `/haven name
+  <name>` sets the name.
+- `/haven title <earned title>` equips a reward; `/haven title` lists rewards.
+- `/haven replay` plays the selected journal visit; `/haven live` returns to the
+  current scene.
+- `/haven motion` toggles animation; `/haven sound` toggles chimes.
 - `/haven plan` toggles whether Claude's step list appears in Patchhaven or
   under each message.
-- `/haven help` lists the commands. Every command also works under `/board`.
+- `/haven help` lists commands. Every command also works under `/board`.
 
 ## Development
 
@@ -116,10 +123,9 @@ npx --yes @anthropic-ai/claude-code@2.1.309 plugin test
 npx --yes @anthropic-ai/claude-code@2.1.309 plugin validate . --strict
 ```
 
-The tests use the local plugin harness and do not need a signed-in Claude
-session. In Claude Desktop, open a project, use `/haven`, start work that reads
-and edits files, then try a delegated background task and watch its status in
-the Crew panel.
+In Claude Desktop, open a project, use `/haven`, start work that reads and edits
+files, then try a delegated background task. The **Crew** panel and the sample
+scenes in **More** show how those activities appear on the map.
 
 ## Art
 

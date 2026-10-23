@@ -1,12 +1,14 @@
 import type { Activity } from '../types'
 import { CHARACTERS, ROOMS } from './art'
 import { HEROES } from './haven'
+import { homestead } from './homestead'
 import type { Room, Scene } from './rooms'
 
 type AtlasNode = {
   key: string
-  kind: 'folder' | 'terminal' | 'board'
+  kind: 'folder' | 'forge' | 'test' | 'library' | 'terminal' | 'board'
   title: string
+  slot: number
   room?: Room
 }
 
@@ -22,7 +24,8 @@ function paletteFor(value: string) {
   return ROOMS[hash % ROOMS.length]!
 }
 
-function actorLabel(act: Activity): string {
+function actorLabel(act: Activity, waiting = false): string {
+  if (waiting) return 'AWAITING YOU'
   if (act.mode === 'test' || /test|lint|check/i.test(act.tool)) return 'CHECKING'
   if (act.mode === 'web') return 'RESEARCHING'
   if (act.mode === 'apply' || act.isApply) return 'APPLYING'
@@ -33,11 +36,14 @@ function actorLabel(act: Activity): string {
   return 'READING'
 }
 
-function character(index: number, x: number, feet: number, height: number): string {
+function character(index: number, x: number, feet: number, height: number, walking = false): string {
   const art = CHARACTERS[index]!
   const width = Math.max(9, Math.round(height * art.w / art.h))
+  const frames = walking && art.frames.length > 1
+    ? art.frames.slice(0, 2).map((frame, i) => `<g opacity="${i ? 0 : 1}">${frame}<animate attributeName="opacity" values="${i ? '0;1;0' : '1;0;1'}" keyTimes="0;.5;1" dur=".44s" repeatCount="indefinite"/></g>`).join('')
+    : art.frames[0]
   return '<svg x="' + (x - width / 2) + '" y="' + (feet - height) + '" width="' + width + '" height="' + height +
-    '" viewBox="0 0 ' + art.w + ' ' + art.h + '" shape-rendering="crispEdges">' + art.frames[0] + '</svg>'
+    '" viewBox="0 0 ' + art.w + ' ' + art.h + '" shape-rendering="crispEdges">' + frames + '</svg>'
 }
 
 function actorIndex(id: string, hero: number): number {
@@ -112,6 +118,25 @@ function building(node: AtlasNode, x: number, y: number, w: number, h: number, a
       '<path d="M' + (wallX + 12) + ' ' + (wallY + 9) + 'h12m-12 4h9" stroke="#59624e" stroke-width="1.2"/>',
       '<rect x="' + (wallX + 13) + '" y="' + (wallY + 18) + '" width="10" height="7" fill="#453b31"/>',
     )
+  } else if (node.kind === 'forge') {
+    common.push(
+      '<rect x="' + wallX + '" y="' + wallY + '" width="38" height="23" fill="#674b38" stroke="#17211f" stroke-width="1.5"/>',
+      '<path d="M' + (wallX - 4) + ' ' + (wallY + 2) + 'l21-14 25 14z" fill="#644c3e" stroke="#17211f"/>',
+      '<path d="M' + (wallX + 23) + ' ' + (wallY + 22) + 'q-7-9 0-16 7 8 1 16z" fill="#ed994f"/><path d="M' + (wallX + 23) + ' ' + (wallY + 21) + 'q-3-5 0-8 4 5 1 8z" fill="#ffe39b"/>',
+      '<path d="M' + (wallX + 4) + ' ' + (wallY + 21) + 'h12l3-3 3 2h5" stroke="#c6b78e" stroke-width="2"/>',
+    )
+  } else if (node.kind === 'test') {
+    common.push(
+      '<rect x="' + wallX + '" y="' + wallY + '" width="38" height="23" fill="#54604a" stroke="#17211f" stroke-width="1.5"/>',
+      '<path d="M' + (wallX - 4) + ' ' + (wallY + 2) + 'l21-14 25 14z" fill="#536a58" stroke="#17211f"/>',
+      '<circle cx="' + (wallX + 23) + '" cy="' + (wallY + 13) + '" r="8" fill="none" stroke="#d9d2a7"/><path d="M' + (wallX + 23) + ' ' + (wallY + 7) + 'v12m-6-6h12" stroke="#f1d27a" stroke-width="2"/>',
+    )
+  } else if (node.kind === 'library') {
+    common.push(
+      '<rect x="' + wallX + '" y="' + wallY + '" width="38" height="23" fill="#685443" stroke="#17211f" stroke-width="1.5"/>',
+      '<path d="M' + (wallX - 4) + ' ' + (wallY + 2) + 'l21-14 25 14z" fill="#596958" stroke="#17211f"/>',
+      '<path d="M' + (wallX + 7) + ' ' + (wallY + 7) + 'q6-3 11 0v10q-5-3-11 0z m11 0q6-3 11 0v10q-5-3-11 0z" fill="#d8c89b" stroke="#403d32"/><path d="M' + (wallX + 18) + ' ' + (wallY + 7) + 'v10" stroke="#926c45"/>',
+    )
   } else {
     common.push(
       '<rect x="' + wallX + '" y="' + wallY + '" width="36" height="23" fill="#756047" stroke="#17211f" stroke-width="1.5"/>',
@@ -131,54 +156,73 @@ function building(node: AtlasNode, x: number, y: number, w: number, h: number, a
 }
 
 export function drawAtlas(scene: Scene): { svg: string; width: number; height: number; spots: Record<string, { x: number; y: number }> } {
-  const width = Math.max(300, Math.min(560, scene.paneWidth || scene.width * 1.5))
+  const width = Math.max(240, Math.min(560, scene.paneWidth || scene.width * 1.5))
   const scale = readableScale(width)
   const hero = Math.max(0, HEROES.indexOf(scene.haven?.hero ?? 'wizard'))
   const background = new Set(scene.backgroundAgents ?? [])
   const actors: { id: string; activity: Activity }[] = Object.entries(scene.activity)
     .filter(([id]) => scene.isTurn || id === '0' || background.has(id) || (scene.departs[id] !== undefined && scene.now - scene.departs[id]! < 1200))
-    .sort(([a, aa], [b, bb]) => a === '0' ? -1 : b === '0' ? 1 : Number(bb.isActive) - Number(aa.isActive) || bb.at - aa.at)
+    .sort(([a], [b]) => a === '0' ? -1 : b === '0' ? 1 : Number(a) - Number(b))
     .map(([id, activity]) => ({ id, activity }))
+
+  for (const member of scene.crew ?? []) {
+    const id = String(member.index)
+    if (member.status === 'running' && !actors.some(actor => actor.id === id)) {
+      actors.push({ id, activity: { tool: '', file: '#hall', at: scene.now, isActive: false, isEdit: false, mode: 'background' } })
+    }
+  }
 
   if (!actors.some(actor => actor.id === '0')) {
     actors.unshift({ id: '0', activity: { tool: '', file: scene.isTurn ? '#hall' : '#inn', at: scene.now, isActive: false, isEdit: false } })
   }
-  const visible = actors.slice(0, 4)
-  const special: AtlasNode[] = []
-  if (visible.some(actor => actor.activity.file === '#terminal')) special.push({ key: 'terminal', kind: 'terminal', title: 'Terminal' })
-  if (scene.steps.length || visible.some(actor => actor.activity.file === '#hall')) special.push({ key: 'board', kind: 'board', title: 'Patchboard' })
-  const folders: AtlasNode[] = scene.rooms.map((room, index) => ({ key: 'room-' + index, kind: 'folder', title: room.name, room }))
-  const ordered = folders.sort((a, b) => {
-    const active = (node: AtlasNode) => visible.some(actor => node.room?.desks.some(desk => samePath(desk.path, actor.activity.file)))
-    return Number(active(b)) - Number(active(a))
-  })
-  const nodes = [...special, ...ordered].slice(0, 6)
-  const columns = 2
-  const gapX = 8
+  const visible = actors.slice(0, 12)
+  const visibleIds = new Set(visible.map(actor => actor.id))
+  const special: AtlasNode[] = [
+    { key: 'terminal', kind: 'terminal', title: 'Terminal', slot: 0 },
+    { key: 'board', kind: 'board', title: 'Patchboard', slot: 1 },
+  ]
+  const occupied = new Set([0, 1])
+  const ordered: AtlasNode[] = scene.rooms.map((room, index) => {
+    const path = room.desks[0]?.path ?? ''
+    const cut = path.lastIndexOf('/')
+    const key = room.key ?? (cut < 0 ? 'root' : path.slice(0, cut).toLowerCase())
+    let slot = 2 + (scene.siteSlots?.[key.toLowerCase()] ?? room.slot ?? index)
+    while (occupied.has(slot) && slot < 8) slot++
+    if (slot >= 8) slot = 2 + index % 6
+    occupied.add(slot)
+    const kind: AtlasNode['kind'] = room.name === 'Forge' ? 'forge' : /test|spec|quality|qa/i.test(room.name) ? 'test' : /doc|wiki|guide/i.test(room.name) ? 'library' : 'folder'
+    return { key: 'room:' + key, kind, title: room.name, room, slot }
+  }).sort((a, b) => a.slot - b.slot || a.key.localeCompare(b.key))
+  const nodes = [...special, ...ordered].slice(0, 8)
+  const columns = width < 360 ? 1 : 2
+  const gapX = columns === 1 ? 0 : 8
   const padX = 9
   const cardW = (width - padX * 2 - gapX) / columns
   const rows = Math.ceil(nodes.length / columns)
-  const footerY = 190
-  const cardHeight = 48
-  const rowPitch = 53
-  const fieldTop = 29
-  const rowStart = fieldTop + Math.max(0, (footerY - fieldTop - cardHeight - (rows - 1) * rowPitch) / 2)
+  const cardHeight = 44
+  const rowPitch = 45
+  const fieldTop = 137
+  const footerY = columns === 1 ? Math.max(321, fieldTop + cardHeight + (rows - 1) * rowPitch + 18) : 321
+  const rowStart = columns === 1 ? fieldTop + 5 : fieldTop + Math.max(0, (footerY - fieldTop - cardHeight - (rows - 1) * rowPitch) / 2)
   const positions = nodes.map((node, index) => {
-    const row = Math.floor(index / columns)
-    const col = row % 2 === 0 ? index % columns : columns - 1 - (index % columns)
+    const cell = columns === 1 ? index : node.slot ?? index
+    const row = Math.floor(cell / columns)
+    const col = row % 2 === 0 ? cell % columns : columns - 1 - (cell % columns)
     return { x: padX + col * (cardW + gapX), y: rowStart + row * rowPitch, w: cardW, h: cardHeight }
   })
   const spots: Record<string, { x: number; y: number }> = {}
   const height = footerY + 19
+  const town = homestead(width, scene.haven?.landmarks ?? [], hero, scene.haven?.motion !== false, !scene.isTurn, scene.haven?.title)
+  const characterSymbols = CHARACTERS.map((art, index) => `<symbol id="c${index}f0" viewBox="0 0 ${art.w} ${art.h}">${art.frames[0]}</symbol>`).join('')
   const bits: string[] = [
     '<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Patchhaven patch trail" width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '" font-family="ui-monospace,Menlo,Consolas,monospace" shape-rendering="crispEdges">',
-    '<defs><pattern id="grass" width="12" height="10" patternUnits="userSpaceOnUse"><rect width="12" height="10" fill="#334b37"/><path d="M2 2h1m6 5h1M5 8h1" stroke="#75804d" stroke-width="1" opacity=".7"/></pattern></defs>',
+    '<defs><pattern id="grass" width="12" height="10" patternUnits="userSpaceOnUse"><rect width="12" height="10" fill="#334b37"/><path d="M2 2h1m6 5h1M5 8h1" stroke="#75804d" stroke-width="1" opacity=".7"/></pattern>' + characterSymbols + '</defs>',
     '<rect width="' + width + '" height="' + height + '" fill="#111d1f"/>',
     '<rect id="floor" x="1" y="1" width="' + (width - 2) + '" height="' + (height - 2) + '" fill="#172426" stroke="#43594e"/>',
     '<path d="M2 23h' + (width - 4) + '" stroke="#43594e"/>',
     '<text x="10" y="16" font-size="' + (10.5 * scale) + '" font-weight="700" letter-spacing="1" fill="#e0c782">PATCH TRAIL</text>',
   ]
-  const status = scene.failure
+  const status = scene.demo ? 'DEMO · ' + scene.demo.toUpperCase() : scene.failure
     ? scene.failure.error === 'rate_limit' ? 'NO RUN ENERGY' : 'TURN PAUSED'
     : scene.stoppedAt !== undefined && scene.now - scene.stoppedAt < 60_000 ? 'STOPPED'
       : scene.compactAt !== undefined && scene.now - scene.compactAt < 5000 ? 'PACKING TRAIL'
@@ -190,6 +234,8 @@ export function drawAtlas(scene: Scene): { svg: string; width: number; height: n
     bits.push('<path d="M' + x + ' 9h4v4h-4z" fill="' + color + '" stroke="#172426" stroke-width=".6"/>')
   }
   bits.push(...terrain(width, footerY - 2))
+  bits.push('<g transform="translate(0 30)">' + town.svg + '</g>')
+  bits.push('<path d="M' + (width / 2) + ' 134q-15 5-20 15m20-15q15 5 20 15" fill="none" stroke="#8e805c" stroke-width="2" stroke-dasharray="2 4" opacity=".8"/>')
 
   if (scene.levelUp && scene.now - scene.levelUp.at < 6000) {
     bits.push('<text x="' + (width / 2) + '" y="25" text-anchor="middle" font-size="' + (9.5 * scale) + '" font-weight="700" fill="#f1cc72">LEVEL UP · ' + scene.levelUp.level + '</text>')
@@ -207,13 +253,14 @@ export function drawAtlas(scene: Scene): { svg: string; width: number; height: n
     nodes.forEach((node, index) => {
       const { x, y, w, h } = positions[index]!
       const room = node.room
-      const agents = visible.filter(actor => {
+      const agents = actors.filter(actor => {
         if (node.key === 'terminal') return actor.activity.file === '#terminal'
         if (node.key === 'board') return actor.activity.file === '#hall'
         return Boolean(room?.desks.some(desk => samePath(desk.path, actor.activity.file)))
       })
+      const drawnAgents = agents.filter(actor => visibleIds.has(actor.id)).slice(0, 3)
       const active = agents.length > 0
-      const accent = node.kind === 'folder' ? paletteFor(node.title).accent : node.kind === 'board' ? '#e0c782' : '#81c4bd'
+      const accent = node.kind === 'folder' ? paletteFor(node.title).accent : node.kind === 'forge' ? '#df9160' : node.kind === 'test' ? '#91bd86' : node.kind === 'library' ? '#c5a2d2' : node.kind === 'board' ? '#e0c782' : '#81c4bd'
       const structure = building(node, x, y, w, h, accent, active, scale)
       bits.push('<g>' + structure.join('') + '</g>')
       if (active) {
@@ -231,11 +278,11 @@ export function drawAtlas(scene: Scene): { svg: string; width: number; height: n
       const del = desk?.change?.del ?? desk?.touch.del ?? 0
       const code = desk?.change?.code
       const statusText = node.kind === 'terminal'
-        ? actorLabel(agents[0]?.activity ?? { file: '#terminal', tool: '', at: 0, isActive: false, isEdit: false })
+        ? actorLabel(agents[0]?.activity ?? { file: '#terminal', tool: '', at: 0, isActive: false, isEdit: false }, agents.some(actor => scene.asking[actor.id] !== undefined))
         : node.kind === 'board'
-          ? (scene.steps.length ? scene.steps.filter(step => step.status === 'completed').length + '/' + scene.steps.length + ' WORK ORDERS' : 'PLANNING')
+          ? (agents.some(actor => scene.asking[actor.id] !== undefined) ? 'AWAITING APPROVAL' : scene.questStatus === 'blocked' ? 'QUEST PAUSED' : scene.questStatus === 'cancelled' ? 'QUEST CANCELLED' : scene.questStatus === 'replaced' ? 'NEW QUEST' : scene.questStatus === 'completed' ? 'QUEST COMPLETE' : scene.steps.length ? scene.steps.filter(step => step.status === 'completed').length + '/' + scene.steps.length + ' STEPS' : 'READY FOR WORK')
           : agents.some(actor => scene.asking[actor.id] !== undefined) ? 'NEEDS APPROVAL'
-            : [desk?.touch.isNew ? 'NEW' : code ?? (desk?.touch.kind === 'read' ? 'READ' : ''), add ? '+' + add : '', del ? '−' + del : ''].filter(Boolean).join(' · ') || (active ? actorLabel(agents[0]!.activity) : 'FILE DISTRICT')
+            : [desk?.touch.isNew ? 'NEW' : code ?? (desk?.touch.kind === 'read' ? 'READ' : ''), add ? '+' + add : '', del ? '−' + del : ''].filter(Boolean).join(' · ') || (active ? actorLabel(agents[0]!.activity, agents.some(actor => scene.asking[actor.id] !== undefined)) : 'FILE DISTRICT')
       const signX = x + 47
       const available = w - 75
       const titleFontSize = 8 * scale
@@ -252,7 +299,7 @@ export function drawAtlas(scene: Scene): { svg: string; width: number; height: n
         '<text x="' + (signX + 3) + '" y="' + (y + 31) + '" font-size="' + fileFontSize + '" fill="#f0efdc">' + esc(clip(fileName, fileChars)) + '</text>',
         '<text x="' + (signX + 3) + '" y="' + (y + 43) + '" font-size="' + statusFontSize + '" fill="' + (active ? '#f0c86e' : '#a9b7a5') + '">' + esc(clip(statusText, statusChars)) + '</text>',
       )
-      agents.slice(0, 3).forEach((actor, actorNumber) => {
+      drawnAgents.forEach((actor, actorNumber) => {
         const px = x + w - 9 - actorNumber * 13
         const feet = y + h - 1
         const previous = scene.from[actor.id]
@@ -268,9 +315,14 @@ export function drawAtlas(scene: Scene): { svg: string; width: number; height: n
         if (spawned !== undefined && scene.now - spawned < 1100) {
           bits.push('<circle cx="0" cy="-10" r="8" fill="none" stroke="#f0c86e" stroke-width="1"><animate attributeName="r" from="3" to="9" dur=".55s" fill="freeze"/><animate attributeName="opacity" from=".8" to="0" dur=".55s" fill="freeze"/></circle>')
         }
-        bits.push('<g>' + (scene.haven?.motion === false ? '' : '<animateTransform attributeName="transform" type="translate" values="0 0;0 -1;0 0" dur="1.2s" repeatCount="indefinite"/>') + character(actorIndex(actor.id, hero), 0, 0, 28 * scale) + '</g></g>')
+        bits.push('<g>' + (scene.haven?.motion === false ? '' : '<animateTransform attributeName="transform" type="translate" values="0 0;0 -1;0 0" dur="1.2s" repeatCount="indefinite"/>') + character(actorIndex(actor.id, hero), 0, 0, 28 * scale, actor.activity.isActive && scene.haven?.motion !== false) + '</g></g>')
         bits.push('<rect x="' + (px - 3) + '" y="' + (y + 2) + '" width="5" height="2" fill="' + AGENT_COLORS[Number(actor.id) % AGENT_COLORS.length] + '"/>')
       })
+      if (agents.length > drawnAgents.length) {
+        const crowd = '+' + (agents.length - drawnAgents.length)
+        bits.push('<rect x="' + (x + w - 15) + '" y="' + (y + h - 13) + '" width="13" height="8" fill="#283e39" stroke="#dfc17a"/>')
+        bits.push('<text x="' + (x + w - 8.5) + '" y="' + (y + h - 7) + '" text-anchor="middle" font-size="6.5" fill="#f1d28a">' + crowd + '</text>')
+      }
       if (!agents.length) bits.push('<circle cx="' + (x + w - 10) + '" cy="' + (y + 6) + '" r="1.6" fill="#65766a"/>')
       const splatActor = agents.find(actor => scene.splats[actor.id] && scene.now - scene.splats[actor.id]!.at < 3000)
       const splat = splatActor ? scene.splats[splatActor.id] : undefined
@@ -286,12 +338,13 @@ export function drawAtlas(scene: Scene): { svg: string; width: number; height: n
 
   const completed = scene.steps.filter(step => step.status === 'completed').length
   const activeStep = scene.steps.find(step => step.status === 'in_progress') ?? scene.steps.find(step => step.status === 'pending')
-  const crewCount = new Set(visible.filter(actor => actor.id !== '0').map(actor => actor.id)).size
+  const crewCount = scene.crewTotal ?? new Set(visible.filter(actor => actor.id !== '0').map(actor => actor.id)).size
   bits.push('<path d="M7 ' + footerY + 'h' + (width - 14) + 'v14H7z" fill="#202e2c" stroke="#526457"/>')
   if (scene.steps.length) {
     const note = activeStep?.text ? ' · ' + activeStep.text : ' · all patches complete'
     bits.push('<text x="13" y="' + (footerY + 11) + '" font-size="' + (8 * scale) + '" letter-spacing=".2" fill="#e6c679">BOARD ' + completed + '/' + scene.steps.length + '</text>')
-    bits.push('<text x="84" y="' + (footerY + 11) + '" font-size="' + (7.5 * scale) + '" fill="' + (activeStep ? '#c5d2c3' : '#83c997') + '">' + esc(clip(note, Math.floor((width - 98) / (4.5 * scale)))) + '</text>')
+    const quest = scene.questStatus && scene.questStatus !== 'active' ? ' · ' + scene.questStatus.toUpperCase() : ''
+    bits.push('<text x="84" y="' + (footerY + 11) + '" font-size="' + (7.5 * scale) + '" fill="' + (activeStep ? '#c5d2c3' : '#83c997') + '">' + esc(clip(note + quest, Math.floor((width - 98) / (4.5 * scale)))) + '</text>')
   } else {
     bits.push('<text x="13" y="' + (footerY + 11) + '" font-size="' + (7.5 * scale) + '" fill="#c0cbb8">' + nodes.length + ' ' + (nodes.length === 1 ? 'DISTRICT' : 'DISTRICTS') + '  ·  ' + crewCount + ' CREW  ·  ' + (scene.haven?.landmarks.length ?? 0) + '/6 MARKS</text>')
     if (scene.bank?.total) bits.push('<text x="' + (width - 13) + '" y="' + (footerY + 11) + '" text-anchor="end" font-size="' + (7.5 * scale) + '" fill="#e6c679">' + scene.bank.total + ' BANKED</text>')

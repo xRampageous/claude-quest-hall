@@ -1,15 +1,20 @@
-export type HavenEvent = { seq: number; kind: 'read' | 'edit' | 'quest' | 'check' | 'commit' | 'crew'; at: number; count: number; xp: number; file?: string; ok?: boolean; role?: string; ref?: string }
+export type HavenEvent = { seq: number; kind: 'read' | 'research' | 'edit' | 'quest' | 'check' | 'commit' | 'crew'; at: number; count: number; xp: number; skill?: 'crafting' | 'research' | 'verification' | 'teamwork'; skillXp?: number; questOutcome?: 'completed' | 'cancelled' | 'replaced' | 'blocked'; file?: string; ok?: boolean; role?: string; ref?: string }
 export type HavenTotals = { edits: number; quests: number; checks: number; commits: number; crew: number; xp: number }
+export type HavenSkills = { crafting: number; research: number; verification: number; teamwork: number }
 export type HavenLandmark = { id: string; at: number; runId: string; evidence: string; file?: string; ref?: string }
-export type HavenRun = { version: 2; id: string; root: string; name: string; startedAt: number; updatedAt: number; seq: number; totals: HavenTotals; events: HavenEvent[]; places: string[] }
+export type HavenRun = { version: 2; id: string; root: string; name: string; startedAt: number; updatedAt: number; seq: number; totals: HavenTotals; skills: HavenSkills; events: HavenEvent[]; places: string[] }
+export type HavenVisitRecap = { at: number; edits: number; files: string[]; passed: number; failed: number; quests: number; crew: number; xp: number; unlocks: string[]; evidence: string[] }
 export type HavenState = {
-  profile: { name: string; hero: 'wizard' | 'knight' | 'ranger' | 'smith'; view: 'world' | 'focus' | 'journal'; motion: boolean }
+  profile: { name: string; hero: 'wizard' | 'knight' | 'ranger' | 'smith'; view: 'world' | 'focus' | 'journal' | 'skills' | 'settings'; motion: boolean; size: 'auto' | 'comfortable' | 'large'; title?: string }
   run: HavenRun
   history: HavenRun[]
   landmarks: HavenLandmark[]
+  skills: HavenSkills
+  siteSlots: Record<string, number>
   journalIndex: number
   replay?: { runId: string; index: number; finished: boolean }
   saveError: boolean
+  lastRecap?: HavenVisitRecap
 }
 export type Step = { text: string; status: 'pending' | 'in_progress' | 'completed' }
 // A file an agent worked on this turn: `read` only looked, `edit` changed it.
@@ -17,8 +22,8 @@ export type Step = { text: string; status: 'pending' | 'in_progress' | 'complete
 // `add` and `del`: lines its edits this turn wrote and replaced, for files git does not count.
 export type Touch = { path: string; agent: number; isActive: boolean; edits: number; kind: 'read' | 'edit'; isNew?: boolean; add?: number; del?: number }
 // What one agent did last: the tool, the file it was on, and when.
-// `mode`: what it is doing besides reading or editing a file: reading the quests
-// (in the Quest Hall), running a command or an outside tool (in the Terminal), or running
+// `mode`: what it is doing besides reading or editing a file: reading the work orders
+// (at the Patchboard), running a command or an outside tool (in the Terminal), or running
 // tests, searching the web or applying changes (at its desk).
 // `isApply`: a batch of changes applied at once (MultiEdit, git apply, patch).
 export type Activity = { tool: string; file: string; at: number; isActive: boolean; isEdit: boolean; isNew?: boolean; isApply?: boolean; mode?: 'test' | 'web' | 'apply' | 'quests' | 'shell' | 'background' }
@@ -33,7 +38,7 @@ export type Change = { code: 'M' | 'A' | 'D' | 'R' | 'U'; add: number; del: numb
 export type Drop = { xp: number; at: number }
 // The last commit's files, when, and all files banked this session.
 export type Bank = { files: number; at: number; total: number }
-export type Stats = { edits: number; files: string[]; quests: number; xp?: number; add?: number; del?: number }
+export type Stats = { edits: number; files: string[]; quests: number; checks?: number; crew?: number; xp?: number; add?: number; del?: number }
 
 declare module 'claude-code' {
   interface PluginState {
@@ -54,7 +59,7 @@ declare module 'claude-code' {
       // Coding XP across sessions, and the latest drop per file path.
       xp: number
       drops: Record<string, Drop>
-      // The level just reached and when, for the banner in the Quest Hall.
+      // The level just reached and when, for the banner over the Patchboard.
       levelUp: { level: number; at: number } | null
       // When each subagent first appeared, for its teleport puff.
       spawns: Record<string, number>

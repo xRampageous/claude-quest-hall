@@ -1,13 +1,18 @@
-import type { Activity, Bank, Change, Drop, Failure, Splat, Step, Touch } from '../types'
+import type { Activity, Bank, Change, CrewAgent, Drop, Failure, Splat, Step, Touch } from '../types'
 import type { Hero, Landmark } from './haven'
 import { drawAtlas } from './atlas'
 
 export type Desk = { path: string; name: string; touch: Touch; change?: Change }
-export type Room = { name: string; desks: Desk[] }
+export type Room = { key?: string; slot?: number; name: string; desks: Desk[] }
 
 export type Scene = {
-  haven?: { hero: Hero; landmarks: readonly Landmark[]; motion: boolean }
+  haven?: { hero: Hero; landmarks: readonly Landmark[]; motion: boolean; size?: 'auto' | 'comfortable' | 'large'; title?: string }
   backgroundAgents?: readonly string[]
+  crew?: readonly CrewAgent[]
+  crewTotal?: number
+  siteSlots?: Readonly<Record<string, number>>
+  questStatus?: string
+  demo?: string
   rooms: readonly Room[]
   activity: Readonly<Record<string, Activity>>
   from: Readonly<Record<string, { x: number; y: number }>>
@@ -38,19 +43,32 @@ export function roomsOf(touched: readonly Touch[], changes: Readonly<Record<stri
   const rooms = new Map<string, Room>()
   for (const touch of touched) {
     const cut = touch.path.lastIndexOf('/')
-    const dir = touch.isNew ? '#' + FORGE : touch.path.slice(0, cut)
+    const dir = touch.isNew ? '#' + FORGE : cut < 0 ? 'root' : touch.path.slice(0, cut)
     const key = dir.toLowerCase()
-    const room = rooms.get(key) ?? { name: touch.isNew ? FORGE : dir.slice(dir.lastIndexOf('/') + 1) || dir, desks: [] }
+    const room = rooms.get(key) ?? { key, name: touch.isNew ? FORGE : dir.slice(dir.lastIndexOf('/') + 1) || dir, desks: [] }
     room.desks.push({
       path: touch.path,
-      name: touch.path.slice(cut + 1),
+      name: cut < 0 ? touch.path : touch.path.slice(cut + 1),
       touch,
       change: changes[touch.path.toLowerCase()],
     })
     rooms.set(key, room)
   }
 
-  const ordered = [...rooms.values()].sort((a, b) => Number(b.name === FORGE) - Number(a.name === FORGE))
+  const roomPath = (room: Room) => {
+    const path = room.desks[0]?.path ?? ''
+    const cut = path.lastIndexOf('/')
+    return (cut < 0 ? 'root' : path.slice(0, cut)).toLowerCase()
+  }
+  const ordered = [...rooms.values()].sort((a, b) => Number(b.name === FORGE) - Number(a.name === FORGE) || roomPath(a).localeCompare(roomPath(b)))
+  const duplicates = new Map<string, number>()
+  for (const room of ordered) duplicates.set(room.name.toLowerCase(), (duplicates.get(room.name.toLowerCase()) ?? 0) + 1)
+  for (const room of ordered) {
+    if (room.name !== FORGE && (duplicates.get(room.name.toLowerCase()) ?? 0) > 1) {
+      const directory = roomPath(room).split('/').filter(Boolean)
+      room.name = directory.slice(-2).join('/') || room.name
+    }
+  }
   const priority = new Set(important)
   const selected = new Set([...new Set([...ordered.filter(room => room.desks.some(desk => priority.has(desk.path))), ...ordered])].slice(0, MAX_ROOMS))
 

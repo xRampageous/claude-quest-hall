@@ -1,6 +1,6 @@
 {
   "name": "claude-quest-hall",
-  "description": "Patchhaven: a compact pixel-art map of live file work, quests and background crew.",
+  "description": "Patchhaven: a living pixel-art coding settlement with stable file districts, skills, quests and background crew.",
   "owner": { "name": "xRampageous" },
   "plugins": [{ "name": "task-board", "source": "./" }]
 }

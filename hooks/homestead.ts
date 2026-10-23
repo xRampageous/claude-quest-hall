@@ -3,9 +3,9 @@ import { settlementOf } from './haven'
 
 // A compact, original pixel-art home for the live work map: a shared timber
 // workshop in a wooded hollow, with landmarks earned through real work.
-export function homestead(width: number, landmarks: readonly Landmark[], hero: number) {
+export function homestead(width: number, landmarks: readonly Landmark[], hero: number, motion = true, showHero = true, title?: string) {
   const built = new Set(landmarks.map(l => l.id))
-  const scale = Math.min(1, width / 240)
+  const scale = Math.min(1.2, width / 240)
   const height = 88 * scale
   const x = (width - 240 * scale) / 2
   const box = (x: number, y: number, w: number, h: number, fill: string, extra = '') =>
@@ -74,7 +74,8 @@ export function homestead(width: number, landmarks: readonly Landmark[], hero: n
       box(119, 22, 6, 14, '#7c6c57') + box(118, 20, 8, 3, '#596158') +
       (upgraded ? box(129, 43, 8, 24, '#927a59') + box(131, 48, 4, 8, '#75b4a6') : '') +
       banner + garden + board + tower + camp +
-      `<use href="#c${hero}f0" x="17" y="37" width="23" height="43"/>` +
+      (showHero ? `<g>${motion ? '<animateTransform attributeName="transform" type="translate" values="0 0;0 -1;0 0" dur="1.6s" repeatCount="indefinite"/>' : ''}<use href="#c${hero}f0" x="17" y="37" width="23" height="43"/></g>` +
+        (title ? `<g aria-label="Equipped reward"><path d="M35 38h8v9l-4-2l-4 2z" fill="#e3c778" stroke="#644b34" stroke-width="1"/><path d="M37 40h4v2h-4z" fill="#f2e3ae"/></g>` : '') : '') +
       `<path d="M8 85h3m16-5h3m51-5h3m68 1h3m40-2h3" stroke="#92a773" stroke-width="1"/>` +
       `<circle cx="58" cy="62" r="1" fill="#d3ba73"/><circle cx="65" cy="56" r="1" fill="#a5c18b"/>` +
       `<text x="8" y="12" font-size="7.5" font-weight="700" letter-spacing=".35" fill="#d7c491">${settlementOf(landmarks).stage.toUpperCase()}</text>` +

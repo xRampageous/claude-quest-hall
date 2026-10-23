@@ -1,15 +1,17 @@
 import { atom, read, update } from 'claude-code'
 import type { Register, EngineInterface, RenderInput } from 'claude-code'
 
-import type { Activity, CrewAgent, Step, Touch } from '../types'
+import type { Activity, CrewAgent, Failure, Step, Touch } from '../types'
 import { CHARACTERS, svgOf } from './art'
 import { readChanges } from './git'
 import { drawRooms, roomsOf } from './rooms'
-import { absoluteFile, eventText, HEROES, HERO_COLORS, LANDMARKS, relativeFile, replayFrame, settlementOf } from './haven'
-import type { HavenView } from './haven'
-import { advanceReplay, initHaven, recordHaven, setProfile } from './haven-state'
+import type { Room } from './rooms'
+import { absoluteFile, earnedRewards, eventText, HEROES, HERO_COLORS, LANDMARKS, recapText, relativeFile, replayFrame, REWARDS, settlementOf, skillLevel, SKILLS } from './haven'
+import type { HavenSize, HavenView, VisitRecap } from './haven'
+import { advanceReplay, initHaven, recordHaven, saveRecap, setProfile } from './haven-state'
 
 const PANE = 'task-board'
+const PATCHHAVEN_VERSION = '2.2.0'
 // Whether Patchhaven takes over the app's own task list under each message.
 const OWN_PLAN_KEY = 'ownPlan'
 let ownsPlan = true
@@ -54,13 +56,20 @@ const TESTS = /(^|[;&|]\s*)(\S*gradlew?\S*\s[^;&|]*\btest|npm (run )?test|pnpm t
 const WEB = new Set(['WebSearch', 'WebFetch'])
 // Shell commands that apply a batch of changes at once.
 const APPLY = /(^|[;&|]\s*)(git\s+(apply|am|cherry-pick)|patch\s)/
-const stats = atom({ plugin: 'task-board', key: 'stats' } as const, { edits: 0, files: [], quests: 0, xp: 0 })
+const stats = atom({ plugin: 'task-board', key: 'stats' } as const, { edits: 0, files: [], quests: 0, checks: 0, crew: 0, xp: 0 })
 // A shell command that commits, outside a quoted string or a pipe's later part.
 const COMMIT = /(^|[;&|]\s*)git\s+(?:-\S+\s+)*commit\b/
 const XP_KEY = 'xp'
 const activity = atom({ plugin: 'task-board', key: 'activity' } as const, {})
 const isTurn = atom({ plugin: 'task-board', key: 'isTurn' } as const, false)
 const pulse = atom({ plugin: 'task-board', key: 'pulse' } as const, 0)
+type QuestState = { signature: string; status: 'idle' | 'active' | 'completed' | 'cancelled' | 'replaced' | 'blocked' }
+const questState = atom({ plugin: 'task-board', key: 'questState' } as const, { signature: '', status: 'idle' } as QuestState)
+type DemoMode = 'idle' | 'edit' | 'crew' | 'approval' | 'failure' | 'complete'
+const DEMO_MODES: readonly DemoMode[] = ['idle', 'edit', 'crew', 'approval', 'failure', 'complete']
+const demoMode = atom({ plugin: 'task-board', key: 'demoMode' } as const, null as DemoMode | null)
+const selectedCrew = atom({ plugin: 'task-board', key: 'selectedCrew' } as const, '0')
+const turnSnapshot = atom({ plugin: 'task-board', key: 'turnSnapshot' } as const, null as { seq: number; landmarks: string[]; edits: number; quests: number; crew: number; xp: number } | null)
 
 // Where each agent stood at the last drawing, so a move can be walked.
 let lastSpots: Record<string, { x: number; y: number }> = {}
@@ -148,23 +157,44 @@ function advance(list: Step[]): Step[] {
   return next
 }
 
+async function blockQuest($: EngineInterface) {
+  const quest = await read($, questState)
+  if (quest.status !== 'active') return
+  await update($, questState, s => ({ ...s, status: 'blocked' }))
+  await recordHaven($, { kind: 'quest', questOutcome: 'blocked', count: (await read($, steps)).length })
+}
+
 // Account for an accepted plan before returning an owned update to the app.
 // Compare the actual steps: their order and the plan's length can change.
 async function showPlan($: EngineInterface, plan: Step[]) {
   const before = await read($, steps)
-  const wasComplete = before.length > 0 && before.every(s => s.status === 'completed')
+  const signatureOf = (list: readonly Step[]) => list.map(s => s.text.trim().toLocaleLowerCase()).join('\u001f')
+  const beforeSignature = signatureOf(before)
+  const nextSignature = signatureOf(plan)
+  let quest = await read($, questState)
+  if (!quest.signature && before.length) quest = { signature: beforeSignature, status: before.every(s => s.status === 'completed') ? 'completed' : 'active' }
   const alreadyDone = new Set(before.filter(s => s.status === 'completed').map(s => s.text))
   const done = plan.filter(s => s.status === 'completed')
   const newlyDone = done.filter(s => !alreadyDone.has(s.text))
   await update($, steps, () => plan)
 
-  if (plan.length > 0 && done.length === plan.length) {
-    if (!wasComplete) {
+  const replacing = Boolean(before.length && quest.status === 'active' && nextSignature && beforeSignature !== nextSignature)
+  const cancelling = Boolean(before.length && quest.status === 'active' && !plan.length)
+  if (replacing || cancelling) await recordHaven($, { kind: 'quest', questOutcome: replacing ? 'replaced' : 'cancelled', count: before.length })
+  if (!plan.length) {
+    await update($, questState, () => ({ signature: '', status: cancelling ? 'cancelled' : quest.status }))
+  } else if (plan.length > 0 && done.length === plan.length) {
+    const alreadyComplete = quest.status === 'completed' && quest.signature === nextSignature
+    await update($, questState, () => ({ signature: nextSignature, status: 'completed' }))
+    if (!alreadyComplete) {
       await update($, stats, s => ({ ...s, quests: s.quests + 1 }))
-      await recordHaven($, { kind: 'quest', count: plan.length })
+      await recordHaven($, { kind: 'quest', questOutcome: 'completed', count: plan.length })
       $.ui.toast(`Congratulations, quest complete! (${plan.length} step${plan.length === 1 ? '' : 's'})`)
     }
-  } else if (newlyDone.length > 0) {
+  } else {
+    await update($, questState, () => ({ signature: nextSignature, status: 'active' }))
+  }
+  if (newlyDone.length > 0 && done.length !== plan.length) {
     $.ui.toast(`Quest step complete: ${newlyDone[newlyDone.length - 1]!.text}`)
   }
 }
@@ -246,6 +276,8 @@ async function syncAgentRoster($: EngineInterface) {
   // and the most recent dozen finished entries in the visible roster.
   const running = next.filter(a => a.status === 'running')
   const finished = next.filter(a => a.status !== 'running').slice(-12)
+  const added = next.filter(agent => !before.some(previousAgent => previousAgent.id === agent.id)).length
+  if (added) await update($, stats, s => ({ ...s, crew: (s.crew ?? 0) + added }))
   if (running.length && !before.some(a => a.status === 'running')) await update($, crewExpanded, () => true)
   await update($, crewAgents, () => [...running, ...finished])
 }
@@ -333,6 +365,10 @@ async function runHavenCommand($: EngineInterface, args: string) {
     '/haven — open the Patchhaven map. /board is an alias.',
     '/haven world | focus | journal — choose a view.',
     '/haven stats (or recap) — this session’s progress.',
+    '/haven settings — size, motion, sound, demo and diagnostics.',
+    '/haven size auto | comfortable | large — choose map scale.',
+    '/haven demo idle | edit | crew | approval | failure | complete | off — token-free preview.',
+    '/haven title — equip an earned title.',
     '/haven hero wizard | knight | ranger | smith — choose your appearance.',
     '/haven name <name> — name your hero (24 characters).',
     '/haven replay — watch the selected journal visit; /haven live returns to work.',
@@ -350,10 +386,44 @@ async function runHavenCommand($: EngineInterface, args: string) {
       `${session.edits} edits · ${session.files.length} files · ${session.quests} quests complete`,
       `${(session.add ?? 0).toLocaleString()} lines added · ${(session.del ?? 0).toLocaleString()} removed · ${banked?.total ?? 0} files banked`,
       state ? `${state.run.name} · ${settlementOf(state.landmarks).stage} · ${state.landmarks.length}/${LANDMARKS.length} landmarks` : '',
+      state?.lastRecap ? `Last field report: ${recapText(state.lastRecap)}` : '',
     ].filter(Boolean).join('\n') }
   }
-  if (['world', 'focus', 'journal', 'history'].includes(arg)) {
+  if (['world', 'focus', 'journal', 'history', 'skills', 'settings'].includes(arg)) {
     await setProfile($, { view: arg === 'history' ? 'journal' : arg as HavenView })
+  } else if (arg === 'size') {
+    const size = rest[0]?.toLowerCase() as HavenSize | undefined
+    if (!size || !['auto', 'comfortable', 'large'].includes(size)) return { text: `Map size: ${state?.profile.size ?? 'auto'}. Choose auto, comfortable or large: /haven size large` }
+    await setProfile($, { size })
+    return { text: `Patchhaven map size: ${size}.` }
+  } else if (arg === 'demo') {
+    const mode = (rest[0] ?? 'crew').toLowerCase()
+    if (mode === 'off') {
+      await update($, demoMode, () => null)
+      await setProfile($, { view: 'world' })
+      return { text: 'Live Patchhaven scene restored. Demo scenes never change project progress.' }
+    }
+    if (!DEMO_MODES.includes(mode as DemoMode)) return { text: `Choose a demo scene: ${DEMO_MODES.join(', ')} or off. Example: /haven demo crew` }
+    await update($, demoMode, () => mode as DemoMode)
+    await setProfile($, { view: 'world' })
+    return { text: `Showing the ${mode} demo. This preview uses sample data and does not call tools or change progress. Use /haven demo off to return.` }
+  } else if (arg === 'settings') {
+    await setProfile($, { view: 'settings' })
+    return { text: 'Patchhaven settings opened.' }
+  } else if (arg === 'diagnostics') {
+    const event = state?.run.events.at(-1)
+    return { text: [
+      `Patchhaven ${PATCHHAVEN_VERSION} · ${state?.profile.size ?? 'auto'} scale · ${state?.profile.motion === false ? 'motion off' : 'motion on'}`,
+      `Visit ${state?.run.events.length ?? 0}/48 beats · ${state?.saveError ? 'save issue' : 'progress saved'}`,
+      `Last event: ${event ? eventText(event) : 'none yet'}${event ? ` · ${new Date(event.at).toLocaleTimeString()}` : ''}`,
+    ].join('\n') }
+  } else if (arg === 'title') {
+    const requested = rest.join(' ').toLowerCase()
+    if (!requested) return { text: `Equipped: ${state?.profile.title ?? 'Wayfinder'}. Earned: ${state ? earnedRewards(state.skills).map(item => item.name).join(', ') || 'none yet' : 'none yet'}. Use /haven title <earned title>.` }
+    const found = state && earnedRewards(state.skills).find(item => item.id === requested || item.name.toLowerCase() === requested)
+    if (!found) return { text: 'That title is still locked. Open /haven skills to see the requirements.' }
+    await setProfile($, { title: found.name })
+    return { text: `${found.name} title equipped.` }
   } else if (arg === 'hero') {
     const hero = rest[0]?.toLowerCase()
     if (!HEROES.includes(hero as typeof HEROES[number])) return { text: `Hero: ${state?.profile.hero ?? 'wizard'}. Choose wizard, knight, ranger or smith: /haven hero ranger` }
@@ -377,6 +447,7 @@ async function runHavenCommand($: EngineInterface, args: string) {
   } else if (arg === 'sound') {
     isSoundOn = !isSoundOn
     await $.store.set(SOUND_KEY, isSoundOn).catch(() => undefined)
+    await update($, pulse, n => n + 1)
     chime($, 'done')
     return { text: isSoundOn ? 'Patchhaven chimes on: when Claude needs you, and when a turn ends.' : 'Patchhaven chimes off.' }
   } else if (arg === 'plan') {
@@ -386,6 +457,30 @@ async function runHavenCommand($: EngineInterface, args: string) {
   } else if (arg) return { text: `Unknown Patchhaven command: ${command}. Use /haven help.` }
   await $.ui.open({ id: PANE, title: 'Patchhaven' })
   return { text: 'Patchhaven opened.' }
+}
+
+function demoFixture(mode: DemoMode, now: number) {
+  const paths = ['src/Engine.java', 'tests/Engine.test.java', 'docs/roadmap.md', 'src/FreshPatch.java']
+  const touch = (path: string, kind: Touch['kind'] = 'edit', isNew = false): Touch => ({ path, agent: 0, isActive: false, edits: 3, kind, isNew, add: 12, del: 4 })
+  const rooms: Room[] = [
+    { key: 'src', name: 'src', slot: 1, desks: [{ path: paths[0]!, name: 'Engine.java', touch: touch(paths[0]!), change: { code: 'M', add: 12, del: 4, mtimeMs: now } }] },
+    { key: 'tests', name: 'tests', slot: 2, desks: [{ path: paths[1]!, name: 'Engine.test.java', touch: touch(paths[1]!, 'read'), change: { code: 'M', add: 0, del: 0, mtimeMs: now } }] },
+    { key: 'docs', name: 'docs', slot: 3, desks: [{ path: paths[2]!, name: 'roadmap.md', touch: touch(paths[2]!, 'read') }] },
+    { key: '#forge', name: 'Forge', slot: 0, desks: [{ path: paths[3]!, name: 'FreshPatch.java', touch: touch(paths[3]!, 'edit', true), change: { code: 'A', add: 12, del: 0, mtimeMs: now } }] },
+  ]
+  const many = ['crew', 'approval', 'failure'].includes(mode)
+  const crew: CrewAgent[] = many
+    ? Array.from({ length: 7 }, (_, index) => ({ id: `demo-review-${index + 1}`, index: index + 1, name: `Sonnet reviewer ${index + 1}`, type: 'reviewer', description: `Review ${paths[index % paths.length]}`, status: 'running' }))
+    : mode === 'complete' ? [{ id: 'demo-review-1', index: 1, name: 'Sonnet reviewer', type: 'reviewer', description: 'Finished checking the patch', status: 'completed' }] : []
+  const location = (index: number) => mode === 'approval' && index === 1 ? '#terminal' : ['#hall', '#terminal', paths[0]!, paths[1]!, paths[2]!, paths[3]!, paths[0]!][index - 1] ?? '#hall'
+  const activity: Record<string, Activity> = { 0: { tool: mode === 'edit' ? 'Edit' : '', file: mode === 'idle' || mode === 'complete' ? '#inn' : mode === 'failure' ? '#terminal' : paths[0]!, at: now, isActive: mode === 'edit' || mode === 'approval' || mode === 'failure', isEdit: mode === 'edit' } }
+  for (const member of crew) activity[String(member.index)] = { tool: 'Review', file: location(member.index), at: now - member.index * 8000, isActive: many, isEdit: false, mode: member.index === 2 ? 'test' : member.index === 3 ? 'web' : 'background' }
+  const steps: Step[] = mode === 'idle' ? [] : mode === 'complete'
+    ? [{ text: 'Map the work', status: 'completed' }, { text: 'Check the patch', status: 'completed' }, { text: 'Share the result', status: 'completed' }]
+    : [{ text: 'Map the work', status: 'completed' }, { text: 'Check the patch', status: 'in_progress' }, { text: 'Share the result', status: 'pending' }]
+  const askingState = mode === 'approval' ? { '1': now } : {}
+  const failureState: Failure | undefined = mode === 'failure' ? { error: 'server_error', at: now } : undefined
+  return { rooms: mode === 'idle' ? [] : rooms, crew, activity, steps, asking: askingState, failure: failureState, questStatus: mode === 'complete' ? 'completed' : mode === 'failure' ? 'blocked' : mode === 'idle' ? 'idle' : 'active' }
 }
 
 export const register: Register = on => {
@@ -502,7 +597,10 @@ export const register: Register = on => {
       if (mode === 'test' && !ran.deny) {
         const failed = ran.isError || /\b(FAIL(ED|URE)?|[1-9]\d* fail(ed|ing|ures?)?)\b/.test(String(ran.text ?? ''))
         await update($, splats, s => ({ ...s, [agent]: { kind: failed ? 'fail' : 'pass', damage: 0, at: Date.now() } }))
+        await update($, stats, s => ({ ...s, checks: (s.checks ?? 0) + 1 }))
         await recordHaven($, { kind: 'check', ok: !failed })
+      } else if (WEB.has(e.tool) && !ran.deny && !ran.isError) {
+        await recordHaven($, { kind: 'research' })
       } else if (ran.isError && !ran.deny) {
         await hit($, await agentOf($, e.agentId ?? ''), String(ran.text ?? e.tool))
       }
@@ -573,6 +671,10 @@ export const register: Register = on => {
     await update($, failure, () => null)
     await update($, stoppedAt, () => null)
     await update($, asking, () => ({}))
+    await update($, questState, s => s.status === 'blocked' ? { ...s, status: 'active' } : s)
+    const state = await read($, haven)
+    const session = await read($, stats)
+    if (state) await update($, turnSnapshot, () => ({ seq: state.run.seq, landmarks: state.landmarks.map(l => l.id), edits: session.edits, quests: session.quests, crew: session.crew ?? 0, xp: session.xp ?? 0 }))
     warned.clear()
     rescan($)
 
@@ -601,12 +703,14 @@ export const register: Register = on => {
       const job = `${e.subagentType}: ${e.description}`
       await update($, jobs, j => ({ ...j, [spawned.agentId!]: job })).catch(() => undefined)
       const index = await agentOf($, spawned.agentId)
+      const wasTracked = (await read($, crewAgents)).some(a => a.id === spawned.agentId)
       const alreadyRunning = (await read($, crewAgents)).some(a => a.status === 'running')
       if (!alreadyRunning) await update($, crewExpanded, () => true)
       await update($, crewAgents, list => [
         ...list.filter(a => a.id !== spawned.agentId),
         { id: spawned.agentId!, index, name: '', type: String(e.subagentType ?? ''), description: String(e.description ?? '').slice(0, 180), status: 'running' },
       ])
+      if (!wasTracked) await update($, stats, s => ({ ...s, crew: (s.crew ?? 0) + 1 }))
       await update($, activity, a => ({ ...a, [String(index)]: a[String(index)] ?? { tool: '', file: '#hall', at: Date.now(), isActive: false, isEdit: false, mode: 'background' } }))
     }
 
@@ -618,6 +722,7 @@ export const register: Register = on => {
   on('classic.StopFailure', async ($, e, next) => {
     try {
       await update($, failure, () => ({ error: e.error, at: Date.now() }))
+      await blockQuest($)
       $.ui.toast(e.error === 'rate_limit' ? 'Out of run energy: usage limit reached' : `The turn stopped: ${FAILURES[e.error] ?? e.error}`)
     } catch {
       // Only the scene misses it.
@@ -669,8 +774,29 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     await update($, isTurn, () => false)
     await update($, asking, () => ({}))
+    if (e.reason === 'aborted') await blockQuest($)
     await syncAgentRoster($)
     if (e.reason === 'aborted') await update($, stoppedAt, () => Date.now())
+    const home = await read($, haven)
+    const snapshot = await read($, turnSnapshot)
+    const totals = await read($, stats)
+    if (home && snapshot) {
+      const beats = home.run.events.filter(event => event.seq > snapshot.seq)
+      const unlocked = home.landmarks.filter(mark => !snapshot.landmarks.includes(mark.id))
+      const recap: VisitRecap = {
+        at: Date.now(),
+        edits: beats.filter(event => event.kind === 'edit').reduce((sum, event) => sum + event.count, 0),
+        files: [...new Set(beats.filter(event => event.file && (event.kind === 'read' || event.kind === 'edit')).map(event => event.file!))].slice(-12),
+        passed: beats.filter(event => event.kind === 'check' && event.ok).length,
+        failed: beats.filter(event => event.kind === 'check' && !event.ok).length,
+        quests: Math.max(0, totals.quests - snapshot.quests),
+        crew: Math.max(0, (totals.crew ?? 0) - snapshot.crew),
+        xp: Math.max(0, (totals.xp ?? 0) - snapshot.xp),
+        unlocks: unlocked.map(mark => LANDMARKS.find(item => item.id === mark.id)?.name ?? mark.id),
+        evidence: unlocked.map(mark => mark.evidence),
+      }
+      await saveRecap($, recap)
+    }
     chime($, 'done')
 
     return next(e)
@@ -698,15 +824,23 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
   const home = await read($, haven)
   const profile = home?.profile
   const playback = home ? replayFrame(home) : undefined
-  const plan = await read($, steps)
+  const demo = playback ? null : await read($, demoMode)
+  const fixture = demo ? demoFixture(demo, Date.now()) : undefined
+  let plan = await read($, steps)
+  if (fixture) plan = fixture.steps
   let touched = await read($, files)
   const git = await read($, changes)
   const total = await read($, xp)
   let acts = await read($, activity)
-  const liveTurn = await read($, isTurn)
+  let liveTurn = await read($, isTurn)
+  if (fixture) liveTurn = demo === 'edit' || demo === 'approval' || demo === 'failure'
   const turn = playback ? true : liveTurn
-  const gone = playback ? {} : await read($, departs)
+  const gone = playback || fixture ? {} : await read($, departs)
   const root = home?.run.root ?? posix(await $.session.cwd())
+  if (fixture) {
+    touched = fixture.rooms.flatMap(room => room.desks.map(desk => desk.touch))
+    acts = fixture.activity
+  }
   if (playback) {
     const { event, files: recordedFiles } = playback
     const active = event.file ? absoluteFile(root, event.file) ?? '#hall' : '#hall'
@@ -719,13 +853,14 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
   const bar = 12
   const filled = to > from ? Math.round(((total - from) / (to - from)) * bar) : bar
   const done = plan.filter(s => s.status === 'completed').length
-  const failed = playback ? null : await read($, failure)
-  const roster = playback ? [] : await read($, crewAgents)
+  const failed = playback ? null : fixture ? fixture.failure ?? null : await read($, failure)
+  const roster = playback ? [] : fixture ? fixture.crew : await read($, crewAgents)
   const runningCrew = roster.filter(a => a.status === 'running')
   const runningIndexes = new Set(runningCrew.map(a => String(a.index)))
-  const expandedCrew = playback ? false : await read($, crewExpanded)
-  const tasks = playback ? {} : await read($, jobs)
-  const waiting = playback ? {} : await read($, asking)
+  const expandedCrew = playback ? false : fixture ? demo === 'crew' || demo === 'approval' || demo === 'failure' : await read($, crewExpanded)
+  const tasks = playback ? {} : fixture ? Object.fromEntries(roster.map(agent => [agent.id, agent.description])) : await read($, jobs)
+  const waiting = playback ? {} : fixture ? fixture.asking : await read($, asking)
+  const selectedCrewId = await read($, selectedCrew)
   const startedAt = await read($, turnStart)
   const elapsed = turn && startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0
   const clock = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`
@@ -743,7 +878,7 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
     return [...(parts.length > 2 ? ['…'] : []), ...parts.slice(-2), file].join(' › ')
   }
   const stage = home ? settlementOf(home.landmarks).stage : 'Wayfinder'
-  const workStatus = failed
+  const workStatus = demo ? `DEMO · ${demo.toUpperCase()}` : failed
     ? failed.error === 'rate_limit' ? 'NO ENERGY' : 'PAUSED'
     : turn ? `WORKING${clock ? ` · ${clock}` : ''}` : runningCrew.length ? `${runningCrew.length} CREW ACTIVE` : 'AT CAMP'
 
@@ -756,7 +891,7 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
       </Box>
       <Box justifyContent="space-between">
         <Text color={HERO_COLORS[HEROES.indexOf(profile?.hero ?? 'wizard')]} size="caption" wrap="truncate-end">
-          {profile?.name ?? 'Claude'} · {profile?.hero ?? 'wizard'} · {stage}
+          {profile?.name ?? 'Claude'} · {profile?.hero ?? 'wizard'} · {stage}{profile?.title ? ` · ${profile.title}` : ''}
         </Text>
       </Box>
       <Box justifyContent="space-between">
@@ -768,10 +903,10 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
         <Text color="#d4bd7a" size="caption">Coding {level} · {total.toLocaleString()} xp</Text>
       </Box>
       <Text color="#b9c3ac" size="caption" wrap="truncate-end">
-        {session.edits} edit{session.edits === 1 ? '' : 's'} · {session.files.length} file{session.files.length === 1 ? '' : 's'} · {session.quests} quest{session.quests === 1 ? '' : 's'} · {home?.landmarks.length ?? 0}/{LANDMARKS.length}
+        {demo ? 'SAMPLE SCENE · SAVED PROGRESS UNCHANGED' : <>{session.edits} edit{session.edits === 1 ? '' : 's'} · {session.files.length} file{session.files.length === 1 ? '' : 's'} · {session.quests} quest{session.quests === 1 ? '' : 's'} · {home?.landmarks.length ?? 0}/{LANDMARKS.length}
         {session.add ? <Text color="#73c991">{`  +${session.add.toLocaleString()}`}</Text> : null}
         {session.del ? <Text color="#f14c4c">{` −${session.del.toLocaleString()}`}</Text> : null}
-        {session.xp ? <Text color="#d4bd7a">{` · +${session.xp} visit`}</Text> : null}
+        {session.xp ? <Text color="#d4bd7a">{` · +${session.xp} visit`}</Text> : null}</>}
       </Text>
       {home?.saveError && <Text color="#e4bd8a" size="caption">Progress is live for this visit; saving is unavailable.</Text>}
       {failed && (
@@ -784,7 +919,7 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
 
   const navigation = (
     <Box gap={1}>
-      {(['world', 'focus', 'journal'] as const).map(view => <Button key={`view-${view}`} label={`${profile?.view === view ? '◆ ' : ''}${view === 'world' ? 'Trail' : view === 'journal' ? 'Log' : 'Focus'}`} plain onPress={() => setProfile($, { view })} />)}
+      {(['world', 'focus', 'journal', 'skills', 'settings'] as const).map(view => <Button key={`view-${view}`} label={`${profile?.view === view ? '◆ ' : ''}${view === 'world' ? 'Trail' : view === 'journal' ? 'Log' : view === 'skills' ? 'Skills' : view === 'settings' ? 'More' : 'Focus'}`} plain onPress={() => setProfile($, { view })} />)}
       <Button key="hero-cycle" label={profile?.hero ?? 'wizard'} plain onPress={() => setProfile($, { hero: HEROES[(HEROES.indexOf(profile?.hero ?? 'wizard') + 1) % HEROES.length]! })} />
       <Button key="motion-toggle" label={profile?.motion === false ? 'Motion off' : 'Motion on'} plain onPress={() => setProfile($, { motion: profile?.motion === false })} />
     </Box>
@@ -800,21 +935,88 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
     {expandedCrew && roster.map(agent => {
       const who = agent.name || agent.type || `Agent ${agent.index}`
       const detail = agent.description || tasks[agent.id] || 'Working on a task'
-      const location = acts[String(agent.index)] ? whereOf(String(agent.index), acts[String(agent.index)]!) : 'Patchboard'
-      const state = agent.status === 'running' ? liveTurn ? 'Running' : 'Running in background' : agent.status === 'failed' ? 'Failed' : agent.status === 'killed' ? 'Stopped' : 'Complete'
-      const color = agent.status === 'running' ? '#9bc9a3' : agent.status === 'failed' ? '#e6a18b' : '#b9c3ac'
+      const act = acts[String(agent.index)]
+      const location = act ? whereOf(String(agent.index), act) : 'Patchboard'
+      const needsApproval = waiting[String(agent.index)] !== undefined
+      const state = needsApproval ? 'Needs your approval' : agent.status === 'running' ? liveTurn ? act?.isActive ? 'Working now' : 'Between tools' : 'Running in background' : agent.status === 'failed' ? 'Failed' : agent.status === 'killed' ? 'Stopped' : 'Complete'
+      const color = needsApproval || agent.status === 'failed' ? '#e6a18b' : agent.status === 'running' ? '#9bc9a3' : '#b9c3ac'
       const hero = HEROES.indexOf(profile?.hero ?? 'wizard')
       const cast = [0, 1, 2, 3].filter(index => index !== hero)
       const character = CHARACTERS[cast[(Math.max(1, agent.index) - 1) % cast.length] ?? 0]!
+      const age = act?.at ? Math.max(0, Math.floor((Date.now() - act.at) / 1000)) : undefined
+      const seen = age === undefined ? 'Last seen: not yet on the map' : `Last seen ${age < 60 ? `${age}s ago` : `${Math.floor(age / 60)}m ago`}`
       return <Box key={`task-${agent.id}`} flexDirection="row" gap={1}>
         {Svg && <Svg source={svgOf(character.w, character.h, character.frames[0]!)} width={20} height={40} alt={`${who} Patchhaven character`} />}
         <Box flexDirection="column">
-          <Text color={color} weight="medium" wrap="truncate-end">{state} · {who} · {location}</Text>
-          <Text color="#d2d2c2" size="caption" wrap="truncate-end">{detail}</Text>
+          <Button key={`agent-select-${agent.id}`} label={`${String(agent.index) === selectedCrewId ? '◆ ' : '◇ '}${state} · ${who} · ${location}`} plain onPress={async () => { await update($, selectedCrew, () => String(agent.index)); await setProfile($, { view: 'focus' }) }} />
+          <Text color="#d2d2c2" size="caption" wrap="truncate-end">{seen} · {detail}</Text>
         </Box>
       </Box>
     })}
   </Box>
+
+  if (profile?.view === 'skills' && home) {
+    const rewards = earnedRewards(home.skills)
+    const codingLevel = levelOf(total)
+    return <Box flexDirection="column" gap={1}>
+      {header}{navigation}
+      <Text weight="semibold" color="#dfc68b">GUILD LEDGER · {settlementOf(home.landmarks).stage}</Text>
+      <Box flexDirection="column" borderStyle="single" borderColor="#617b70" paddingX={1}>
+        <Text color="#e0c782" weight="semibold">Coding · level {codingLevel.level} · {total.toLocaleString()} XP</Text>
+        <Text size="caption" color="#b9c3ac">The classic OSRS level curve · XP carries between sessions.</Text>
+      </Box>
+      {SKILLS.map(skill => {
+        const amount = home.skills[skill.id]
+        const level = skillLevel(amount)
+        const width = level.to > level.from ? Math.round((amount - level.from) / (level.to - level.from) * 10) : 10
+        return <Box key={`skill-${skill.id}`} flexDirection="column" borderStyle="single" borderColor="#536b60" paddingX={1}>
+          <Box justifyContent="space-between"><Text color="#e0c782" weight="semibold">{skill.icon} {skill.name} · {level.level}</Text><Text size="caption" color="#d4bd7a">{amount.toLocaleString()} XP</Text></Box>
+          <Text color="#e8c86e">{'▰'.repeat(width)}<Text color="#53604f">{'▱'.repeat(10 - width)}</Text></Text>
+          <Text size="caption" color="#b9c3ac">{skill.work} · {level.to > amount ? `${(level.to - amount).toLocaleString()} to level ${level.level + 1}` : 'Maximum level'}</Text>
+        </Box>
+      })}
+      <Box flexDirection="column" borderStyle="single" borderColor="#806d49" paddingX={1}>
+        <Text color="#e0c782" weight="semibold">FIELD RELICS · {rewards.length}/{REWARDS.length} titles</Text>
+        {REWARDS.map(reward => {
+          const unlocked = rewards.some(item => item.id === reward.id)
+          return <Button key={`reward-${reward.id}`} label={`${unlocked ? (profile.title === reward.name ? '◆ ' : '◇ ') + reward.mark + ' ' + reward.name + ' · ' + reward.item : '🔒 ' + reward.item + ' · ' + reward.skill + ' level ' + reward.level}`} plain dimColor={!unlocked} onPress={() => unlocked && setProfile($, { title: reward.name })} />
+        })}
+      </Box>
+      <Text size="caption" color="#aebdac">Skill gains reward distinct file reads and edits, successful checks and team milestones. Repeated calls earn less and each skill is capped per visit.</Text>
+      {crewPanel}
+    </Box>
+  }
+
+  if (profile?.view === 'settings' && home) {
+    const latest = home.run.events.at(-1)
+    const diagnostics = `${PATCHHAVEN_VERSION} · ${e.surface} · ${e.props.bodyColumns ?? 40} columns · ${home.run.events.length}/48 beats · ${home.saveError ? 'save issue' : 'saving normally'}`
+    return <Box flexDirection="column" gap={1}>
+      {header}{navigation}
+      <Text weight="semibold" color="#dfc68b">HAVEN SETTINGS · {profile.size.toUpperCase()}</Text>
+      <Box flexDirection="column" borderStyle="single" borderColor="#617b70" paddingX={1}>
+        <Text color="#e0c782" weight="semibold">MAP SCALE</Text>
+        <Box gap={1}>{(['auto', 'comfortable', 'large'] as const).map(size => <Button key={`scale-${size}`} label={`${profile.size === size ? '◆ ' : ''}${size}`} plain onPress={() => setProfile($, { size })} />)}</Box>
+        <Box gap={1}>
+          <Button key="settings-motion" label={profile.motion ? 'Motion on' : 'Motion off'} plain onPress={() => setProfile($, { motion: !profile.motion })} />
+          <Button key="settings-sound" label={isSoundOn ? 'Chimes on' : 'Chimes off'} plain onPress={async () => { const result = await runHavenCommand($, 'sound'); $.ui.toast(result.text) }} />
+        </Box>
+      </Box>
+      <Box flexDirection="column" borderStyle="single" borderColor="#806d49" paddingX={1}>
+        <Text color="#e0c782" weight="semibold">TOKEN-FREE PREVIEW</Text>
+        <Text size="caption" color="#b9c3ac">Sample scenes never call tools or write to your work log.</Text>
+        <Box gap={1}>
+          {DEMO_MODES.map(mode => <Button key={`demo-${mode}`} label={`${demo === mode ? '◆ ' : ''}${mode}`} plain onPress={async () => { await update($, demoMode, () => mode); await setProfile($, { view: 'world' }) }} />)}
+          {demo && <Button key="demo-off" label="Return live" plain onPress={async () => { await update($, demoMode, () => null); await setProfile($, { view: 'world' }) }} />}
+        </Box>
+      </Box>
+      <Box flexDirection="column" borderStyle="single" borderColor="#536b60" paddingX={1}>
+        <Text color="#e0c782" weight="semibold">DIAGNOSTICS · Patchhaven {diagnostics}</Text>
+        <Text size="caption" color="#b9c3ac" wrap="truncate-end">Last saved event: {latest ? `${eventText(latest)} · ${new Date(latest.at).toLocaleTimeString()}` : 'none yet'}</Text>
+        <Text size="caption" color="#b9c3ac">{home.landmarks.length}/{LANDMARKS.length} landmarks · {runningCrew.length} background workers · /haven diagnostics</Text>
+      </Box>
+      {crewPanel}
+    </Box>
+  }
 
   if (profile?.view === 'journal' && home) {
     const visits = [home.run, ...home.history]
@@ -826,6 +1028,11 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
       {header}{navigation}
       <Text weight="semibold" color="#dfc68b">FIELD LOG · {home.journalIndex === 0 ? 'This visit' : new Date(visit.startedAt).toLocaleString()}</Text>
       <Text size="caption">{visit.totals.edits} edits · {visit.totals.quests} quests · {visit.totals.checks} checks · {visit.totals.crew} crew · +{visit.totals.xp} XP</Text>
+      {home.lastRecap && home.journalIndex === 0 && <Box flexDirection="column" borderStyle="single" borderColor="#806d49" paddingX={1}>
+        <Text color="#e0c782" weight="semibold">LAST FIELD REPORT</Text>
+        <Text size="caption" wrap="truncate-end">{recapText(home.lastRecap)}</Text>
+        {!!home.lastRecap.files.length && <Text size="caption" color="#b9c3ac" wrap="truncate-end">Files: {home.lastRecap.files.slice(-4).join(' · ')}</Text>}
+      </Box>}
       <Box flexDirection="column" borderStyle="single" borderColor="#617b70" paddingX={1}>
         <Text color="#dfc68b">LANDMARKS · {home.landmarks.length}/{LANDMARKS.length}</Text>
         <Text size="caption" color="#b9d3b2" wrap="truncate-end">{earnedNames.length ? earnedNames.join(' · ') : 'The camp is waiting for its first mark.'}</Text>
@@ -874,16 +1081,35 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
     )
   }
 
-  const width = Math.max(300, Math.min(560, (e.props.bodyColumns ?? 40) * 8))
-  let rooms = roomsOf(touched, playback ? {} : git, Object.values(acts).map(a => a.file))
+  const renderWidth = Math.max(200, Math.min(560, (e.props.bodyColumns ?? 40) * 8))
+  const zoom = profile?.size === 'large' ? 1.18 : profile?.size === 'comfortable' ? 1.08 : 1
+  const width = renderWidth / zoom
+  let rooms = fixture ? fixture.rooms : roomsOf(touched, playback ? {} : git, Object.values(acts).map(a => a.file))
+  if (!fixture) rooms = rooms.map(room => {
+    const firstPath = room.desks[0]?.path ?? ''
+    const relative = relativeFile(root, firstPath) ?? firstPath
+    const cut = relative.lastIndexOf('/')
+    const key = room.name === 'Forge' ? '#forge' : cut < 0 ? 'root' : relative.slice(0, cut).toLowerCase()
+    return { ...room, key, slot: home?.siteSlots[key] }
+  })
   const backgroundAgentIndexes = !playback && !liveTurn ? [...runningIndexes] : []
-  const focusPath = liveTurn ? acts[0]?.file : runningCrew.map(a => acts[String(a.index)]?.file).find(file => file && !file.startsWith('#')) ?? acts[0]?.file
-  if (profile?.view === 'focus') rooms = [rooms.find(r => r.desks.some(d => d.path === focusPath)) ?? rooms[0]].filter((r): r is NonNullable<typeof r> => Boolean(r))
-  const sceneKey = `${profile?.view}:${playback?.run.id ?? 'live'}`
+  const focusActivity = acts[selectedCrewId] ?? acts['0']
+  const focusPath = selectedCrewId !== '0' ? focusActivity?.file : liveTurn ? acts[0]?.file : runningCrew.map(a => acts[String(a.index)]?.file).find(file => file && !file.startsWith('#')) ?? acts[0]?.file
+  if (profile?.view === 'focus') {
+    const focusedRoom = rooms.find(r => r.desks.some(d => d.path === focusPath))
+    rooms = focusedRoom ? [focusedRoom] : focusPath?.startsWith('#') ? [] : rooms.slice(0, 1)
+  }
+  const sceneKey = `${profile?.view}:${playback?.run.id ?? 'live'}:${profile?.size ?? 'auto'}:${Math.round(width)}:${demo ?? 'live'}`
   if (lastSceneKey !== sceneKey) { lastSpots = {}; lastSceneKey = sceneKey }
+  const questStatus = fixture?.questStatus ?? (await read($, questState)).status
   const drawn = drawRooms({
-    haven: home ? { hero: home.profile.hero, landmarks: home.landmarks, motion: home.profile.motion } : undefined,
+    haven: home ? { hero: home.profile.hero, landmarks: home.landmarks, motion: home.profile.motion, size: home.profile.size, title: home.profile.title } : undefined,
     backgroundAgents: playback ? [] : backgroundAgentIndexes,
+    crew: roster,
+    crewTotal: runningCrew.length,
+    siteSlots: home?.siteSlots,
+    questStatus,
+    demo: demo ?? undefined,
     rooms,
     activity: acts,
     from: lastSpots,
@@ -914,7 +1140,11 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
           the app rebuilds on every redraw, which flashed white. Its SMIL
           animations run the same either way. Scaled to the pane's width: the
           narrower the scene came out, the closer the zoom. */}
-      <Svg key="scene" source={drawn.svg} width={width} height={Math.round((drawn.height * width) / drawn.width)} alt={`Patchhaven: ${profile?.view === 'focus' ? 'focused file trail' : 'pixel world with Claude and background agents moving between files'}${playback ? ' (recorded visit)' : ''}`} />
+      <Svg key="scene" source={drawn.svg} width={renderWidth} height={Math.round((drawn.height * renderWidth) / drawn.width)} alt={`Patchhaven: ${profile?.view === 'focus' ? 'focused file trail' : 'pixel world with Claude and background agents moving between files'}${playback ? ' (recorded visit)' : ''}${demo ? ` (${demo} sample scene)` : ''}`} />
+      {!turn && !playback && !demo && home?.lastRecap && <Box flexDirection="column" borderStyle="single" borderColor="#806d49" paddingX={1}>
+        <Text color="#e0c782" weight="semibold">LAST FIELD REPORT · {recapText(home.lastRecap)}</Text>
+        {home.lastRecap.files.length > 0 && <Text size="caption" color="#b9c3ac" wrap="truncate-end">{home.lastRecap.files.slice(-4).join(' · ')}</Text>}
+      </Box>}
       {crewPanel}
     </Box>
   )
