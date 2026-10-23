@@ -1,4 +1,16 @@
-import type { HavenState } from '../hooks/haven'
+export type HavenEvent = { seq: number; kind: 'read' | 'edit' | 'quest' | 'check' | 'commit' | 'crew'; at: number; count: number; xp: number; file?: string; ok?: boolean; role?: string; ref?: string }
+export type HavenTotals = { edits: number; quests: number; checks: number; commits: number; crew: number; xp: number }
+export type HavenLandmark = { id: string; at: number; runId: string; evidence: string; file?: string; ref?: string }
+export type HavenRun = { version: 2; id: string; root: string; name: string; startedAt: number; updatedAt: number; seq: number; totals: HavenTotals; events: HavenEvent[]; places: string[] }
+export type HavenState = {
+  profile: { name: string; hero: 'wizard' | 'knight' | 'ranger' | 'smith'; view: 'world' | 'focus' | 'journal'; motion: boolean }
+  run: HavenRun
+  history: HavenRun[]
+  landmarks: HavenLandmark[]
+  journalIndex: number
+  replay?: { runId: string; index: number; finished: boolean }
+  saveError: boolean
+}
 export type Step = { text: string; status: 'pending' | 'in_progress' | 'completed' }
 // A file an agent worked on this turn: `read` only looked, `edit` changed it.
 // `isNew`: the file did not exist before this turn wrote it.

@@ -2,16 +2,18 @@ import { atom, read, update } from 'claude-code'
 import type { Register, EngineInterface, RenderInput } from 'claude-code'
 
 import type { Activity, CrewAgent, Step, Touch } from '../types'
+import { CHARACTERS, svgOf } from './art'
 import { readChanges } from './git'
 import { drawRooms, roomsOf } from './rooms'
 import { absoluteFile, eventText, HEROES, HERO_COLORS, LANDMARKS, relativeFile, replayFrame, settlementOf } from './haven'
 import type { HavenView } from './haven'
-import { advanceReplay, haven, initHaven, recordHaven, setProfile } from './haven-state'
+import { advanceReplay, initHaven, recordHaven, setProfile } from './haven-state'
 
 const PANE = 'task-board'
 // Whether the Workbench takes over the app's own task list under each message.
 const OWN_PLAN_KEY = 'ownPlan'
 let ownsPlan = true
+const haven = atom({ plugin: 'task-board', key: 'haven' } as const, null)
 const steps = atom({ plugin: 'task-board', key: 'steps' } as const, [])
 
 const files = atom({ plugin: 'task-board', key: 'files' } as const, [])
@@ -203,11 +205,8 @@ async function agentOf($: EngineInterface, loopId: string): Promise<number> {
 // Keep a live roster even when a background agent has not called a tool yet,
 // and after Claude's foreground turn has ended.
 async function syncAgentRoster($: EngineInterface) {
-  const engine = $ as EngineInterface & { agent?: { list?: () => Promise<unknown> } }
-  const listAgents = engine.agent?.list
-  if (typeof listAgents !== 'function') return
   let listed: unknown
-  try { listed = await listAgents.call(engine.agent) } catch { return }
+  try { listed = await $.agent.list() } catch { return }
   if (!Array.isArray(listed)) return
 
   const before = await read($, crewAgents)
@@ -702,6 +701,7 @@ export const register: Register = on => {
 async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
   const ui = $.ui.resolve(e)
   const { Box, Text, Button } = ui
+  const Svg = e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : undefined
   await read($, pulse)
   const home = await read($, haven)
   const profile = home?.profile
@@ -839,9 +839,15 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
       const location = acts[String(agent.index)] ? whereOf(String(agent.index), acts[String(agent.index)]!) : 'Guild Hall'
       const state = agent.status === 'running' ? liveTurn ? 'Running' : 'Running in background' : agent.status === 'failed' ? 'Failed' : agent.status === 'killed' ? 'Stopped' : 'Complete'
       const color = agent.status === 'running' ? '#9bc9a3' : agent.status === 'failed' ? '#e6a18b' : '#b9c3ac'
-      return <Box key={`task-${agent.id}`} flexDirection="column">
-        <Text color={color} weight="medium" wrap="truncate-end">{state} · {who} · {location}</Text>
-        <Text color="#d2d2c2" size="caption" wrap="truncate-end">{detail}</Text>
+      const hero = HEROES.indexOf(profile?.hero ?? 'wizard')
+      const cast = [0, 1, 2, 3].filter(index => index !== hero)
+      const character = CHARACTERS[cast[(Math.max(1, agent.index) - 1) % cast.length] ?? 0]!
+      return <Box key={`task-${agent.id}`} flexDirection="row" gap={1}>
+        {Svg && <Svg source={svgOf(character.w, character.h, character.frames[0]!)} width={20} height={40} alt={`${who} Patchhaven character`} />}
+        <Box flexDirection="column">
+          <Text color={color} weight="medium" wrap="truncate-end">{state} · {who} · {location}</Text>
+          <Text color="#d2d2c2" size="caption" wrap="truncate-end">{detail}</Text>
+        </Box>
       </Box>
     })}
   </Box>
@@ -879,7 +885,6 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
   </Box>
 
   // The terminal has no real Svg: its table stands one in that draws only the alt text.
-  const Svg = e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : undefined
   if (!Svg) {
     return (
       <Box flexDirection="column" gap={1}>

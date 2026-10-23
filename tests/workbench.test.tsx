@@ -98,6 +98,36 @@ test('thinking, creating, teleporting and banking all show in the scene', async 
   await clock.advance(10)
 })
 
+test('seven background reviewers appear in the expanded crew roster', async ($, on) => {
+  world($, on)
+  const reviewers = Array.from({ length: 7 }, (_, i) => ({
+    id: `review-${i + 1}`,
+    name: `Sonnet 5.5 reviewer ${i + 1}`,
+    type: 'reviewer',
+    description: `Review file ${i + 1}`,
+    status: 'running',
+  }))
+  on('agent.list', () => ({ value: reviewers }))
+  await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const roster = await ui.find({ key: 'crew-toggle' })
+  expect(roster?.props.label).toBe('Background crew · 7 running · 7 tracked ▴')
+  expect((await ui.findAll({ type: 'Svg' })).length).toBe(8)
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')
+  for (let i = 1; i <= 7; i++) {
+    expect(texts).toContain(`Sonnet 5.5 reviewer ${i}`)
+    expect(texts).toContain(`Review file ${i}`)
+  }
+  await ui.unmount()
+
+  const terminal = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const terminalTexts = (await terminal.findAll({ type: 'Text' })).map(t => t.text).join('\n')
+  expect((await terminal.findAll({ type: 'Svg' })).length).toBe(0)
+  for (let i = 1; i <= 7; i++) expect(terminalTexts).toContain(`Sonnet 5.5 reviewer ${i}`)
+  await terminal.unmount()
+})
+
 test('a failed tool lands a hitsplat; a test run trains at the dummy and splats pass or fail', async ($, on) => {
   world($, on)
   await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
