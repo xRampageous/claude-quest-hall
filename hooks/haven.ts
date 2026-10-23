@@ -128,11 +128,11 @@ export function totalsOf(runs: readonly HavenRun[]): HavenTotals {
 
 export const LANDMARKS = [
   { id: 'garden', name: 'Patch Garden', title: 'Patchmaker', goal: 'Land your first successful edit', metric: 'edits', target: 1 },
-  { id: 'board', name: 'Guild Noticeboard', title: 'Questkeeper', goal: 'Finish a plan', metric: 'quests', target: 1 },
-  { id: 'tower', name: 'Signal Tower', title: 'Proofkeeper', goal: 'Record a successful test command', metric: 'checks', target: 1 },
-  { id: 'banner', name: 'Shipping Banner', title: 'Shipwright', goal: 'Record a successful Git commit', metric: 'commits', target: 1 },
-  { id: 'camp', name: 'Crew Camp', title: 'Guildkeeper', goal: 'Work with a subagent', metric: 'crew', target: 1 },
-  { id: 'workshop', name: 'Grand Workshop', title: 'Master Crafter', goal: 'Land 25 edits across recent visits', metric: 'edits', target: 25 },
+  { id: 'board', name: 'Patchboard', title: 'Keeper of Notes', goal: 'Finish a plan', metric: 'quests', target: 1 },
+  { id: 'tower', name: 'Signal Mast', title: 'Proofkeeper', goal: 'Record a successful test command', metric: 'checks', target: 1 },
+  { id: 'banner', name: 'Dispatch Pennant', title: 'Shipwright', goal: 'Record a successful Git commit', metric: 'commits', target: 1 },
+  { id: 'camp', name: 'Crew Camp', title: 'Trailkeeper', goal: 'Work with a subagent', metric: 'crew', target: 1 },
+  { id: 'workshop', name: 'Shared Workshop', title: 'Master Crafter', goal: 'Land 25 edits across recent visits', metric: 'edits', target: 25 },
 ] as const
 
 export function eventText(e: HavenEvent): string {

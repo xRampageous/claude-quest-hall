@@ -16,6 +16,19 @@ For a fresh install from a terminal:
 npx --yes @anthropic-ai/claude-code@2.1.309 plugin install task-board --marketplace xRampageous/patchhaven --scope user
 ```
 
+If your Claude settings still register the old marketplace as
+`claude-quest-hall`, install this test branch from that saved source so the
+repository matches the existing entry:
+
+```powershell
+cd "C:\\path\\to\\your\\project"
+npx --yes @anthropic-ai/claude-code@2.1.309 plugin install task-board --marketplace xRampageous/claude-quest-hall#feat/patchhaven-v2 --scope project
+```
+
+GitHub redirects the old repository path to Patchhaven. After testing, update
+the project's marketplace source to `xRampageous/patchhaven` for future
+installs.
+
 In Claude Desktop, click **+** beside the prompt box, choose **Plugins**, add
 the marketplace `xRampageous/patchhaven`, then install `task-board`.
 
@@ -37,8 +50,8 @@ starts recording from your next session.
 
 The world keeps Claude's file activity in view. A folder is a themed room, a
 file is a desk, and Claude walks between desks as the work moves. The Terminal
-room marks commands and searches, the Forge marks new files, and the Guild Hall
-holds the quest board. Between turns Claude waits at the Inn. If background
+room marks commands and searches, the Forge marks new files, and the Patchboard
+holds this visit's work orders. Between turns Claude waits at the Inn. If background
 agents keep running, they remain at their last file while Claude rests.
 
 The expanded **Crew** panel lists every known agent task, not just the few
@@ -55,8 +68,8 @@ turns, so the map feels like one place Claude keeps returning to.
 ## Your settlement
 
 Patchhaven starts as a campsite and grows as work earns six permanent
-landmarks: the Patch Garden, Guild Noticeboard, Signal Tower, Shipping Banner,
-Crew Camp and Grand Workshop. Each landmark has a clear activity goal and
+landmarks: the Patch Garden, Patchboard, Signal Mast, Dispatch Pennant, Crew
+Camp and Shared Workshop. Each landmark has a clear activity goal and
 keeps a short evidence note when it is earned. There are no loot drops,
 streaks, daily chores or rewards that need claiming.
 

@@ -25,7 +25,7 @@ const crewExpanded = atom({ plugin: 'task-board', key: 'crewExpanded' } as const
 const changes = atom({ plugin: 'task-board', key: 'changes' } as const, {})
 const xp = atom({ plugin: 'task-board', key: 'xp' } as const, 0)
 const drops = atom({ plugin: 'task-board', key: 'drops' } as const, {})
-// The level just reached and when, for the banner in the Quest Hall.
+// The level just reached and when, for the banner over the Patchboard.
 const levelUp = atom({ plugin: 'task-board', key: 'levelUp' } as const, null)
 const spawns = atom({ plugin: 'task-board', key: 'spawns' } as const, {})
 const bank = atom({ plugin: 'task-board', key: 'bank' } as const, null)
@@ -494,7 +494,7 @@ export const register: Register = on => {
             : mode ?? ''
       // Tests, web searches and applied patches happen where the agent already
       // is: a training dummy, a map scroll or a rune circle at its desk (or in
-      // the Quest Hall if it has no desk yet).
+      // the Patchboard if it has no desk yet).
       const agent = mode ? await agentOf($, e.agentId ?? '') : -1
       // Commands, searches and outside tools are worked in the Terminal room.
       const at = mode === 'shell' ? '#terminal' : mode ? ((await read($, activity))[agent]?.file ?? '#hall') : '#hall'
@@ -516,7 +516,7 @@ export const register: Register = on => {
       // A shell command may commit, stash or check out: git state can move.
       if (e.tool === 'Bash' || e.tool === 'PowerShell') {
         rescan($)
-        // A commit banks its files: coins fly from the desks into the Quest Hall's chest.
+        // A commit shelves its files in the Patchboard archive.
         const commit = /\[[^\]\r\n]+\s([0-9a-f]{7,40})\]/i.exec(String(ran.text ?? ''))
         if (COMMIT.test(String(input.command ?? '')) && !ran.deny && !ran.isError && commit) {
           const said = /(\d+) files? changed/.exec(String(ran.text ?? ''))
@@ -696,7 +696,7 @@ export const register: Register = on => {
 }
 
 // The Workbench pane: one card (Coding level, session, where each agent is),
-// then the scene, whose Quest Hall holds the quest board. A terminal, which
+// then the scene, whose Patchboard holds the work orders. A terminal, which
 // draws no SVG, gets the card and the quests as text.
 async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
   const ui = $.ui.resolve(e)
@@ -739,11 +739,11 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
   const elapsed = turn && startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0
   const clock = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`
 
-  // Where an agent is: its room's folder trail and file, or the Quest Hall
+  // Where an agent is: its room's folder trail and file, or the Patchboard
   // or the Inn, as the scene draws it.
   const whereOf = (agent: string, act: Activity): string => {
     if (agent === '0' && !turn) return 'Inn · waiting for you'
-    if (act.file === '#hall') return act.mode === 'quests' ? 'Guild Hall · reading the quests' : 'Guild Hall'
+    if (act.file === '#hall') return act.mode === 'quests' ? 'Patchboard · reading work orders' : 'Patchboard'
     if (act.file === '#terminal') return `Terminal · ${act.tool}`
     const path = relativeFile(root, act.file) ?? act.file
     const parts = path.split('/')
@@ -836,7 +836,7 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
     {expandedCrew && roster.map(agent => {
       const who = agent.name || agent.type || `Agent ${agent.index}`
       const detail = agent.description || tasks[agent.id] || 'Working on a task'
-      const location = acts[String(agent.index)] ? whereOf(String(agent.index), acts[String(agent.index)]!) : 'Guild Hall'
+      const location = acts[String(agent.index)] ? whereOf(String(agent.index), acts[String(agent.index)]!) : 'Patchboard'
       const state = agent.status === 'running' ? liveTurn ? 'Running' : 'Running in background' : agent.status === 'failed' ? 'Failed' : agent.status === 'killed' ? 'Stopped' : 'Complete'
       const color = agent.status === 'running' ? '#9bc9a3' : agent.status === 'failed' ? '#e6a18b' : '#b9c3ac'
       const hero = HEROES.indexOf(profile?.hero ?? 'wizard')

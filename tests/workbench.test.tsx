@@ -50,8 +50,12 @@ test('the scene shows quests, rooms and the Coding level, and an edit earns XP',
   expect(texts).toContain('18 xp')
   const scene = await ui.find({ type: 'Svg' })
   const svg = String((scene as unknown as { props: { source: string } }).props.source)
-  expect(svg).toContain('Guild Hall')
-  // The quest is on the Guild Hall's board, in the scene.
+  expect(svg).toContain('Patchboard')
+  expect(svg).toContain('aria-label="Patchhaven settlement"')
+  expect(svg).toContain('Work orders 0/1')
+  expect(svg).toContain('id="floor')
+  expect(svg).not.toContain('Guild Hall')
+  // The quest is on Patchhaven's board, in the scene.
   expect(svg).toContain('Ship the rooms')
   expect(texts).toContain('Claude')
   expect(svg).toContain('Engine.java')
@@ -232,7 +236,7 @@ test('between turns, Claude rests at the Inn and dozes off later', async ($, on)
   await ui.unmount()
 })
 
-test('every surface shows the quests: on the Guild Hall board, or as text in a terminal', async ($, on) => {
+test('every surface shows the quests: on the Patchboard, or as text in a terminal', async ($, on) => {
   world($, on)
   await $.session.start({ cwd: 'C:\\proj', surface: 'terminal', isInteractive: true })
   await $.tool.call({ tool: 'mcp__ccd_turn__update_plan', items: [{ content: 'Ship the rooms', status: 'pending' }] } as never)
@@ -254,7 +258,7 @@ test('the board text keeps the same on-screen size at any zoom', async ($, on) =
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const scene = (await ui.find({ type: 'Svg' })) as unknown as { props: { source: string; width: number } }
   const viewBox = Number(/viewBox="0 0 ([\d.]+)/.exec(scene.props.source)?.[1])
-  const size = Number(/font-size="([\d.]+)" fill="#a31d1d"/.exec(scene.props.source)?.[1])
+  const size = Number(/font-size="([\d.]+)" fill="#5a302b"/.exec(scene.props.source)?.[1])
   // Units times zoom: 11px on screen.
   expect(Math.round(size * (scene.props.width / viewBox))).toBe(11)
   await ui.unmount()

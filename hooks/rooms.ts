@@ -1,14 +1,11 @@
 import type { Activity, Bank, Change, Drop, Failure, Splat, Step, Touch } from '../types'
 import { CHAIR, CHARACTERS, DESK, ICONS, MONITOR, PLANT, ROOMS } from './art'
-import type { Sprite } from './art'
 import { HEROES } from './haven'
 import type { Hero, Landmark } from './haven'
 import { homestead } from './homestead'
 
-// The Workbench scene, codemap-style: a Quest Hall with Claude's steps on
-// its board, then each folder in play as a themed room, each file a desk,
-// each agent a character standing behind the desk it works at, with a bubble
-// saying what it does and XP floating up from what it just edited. Drawn as
+// The Patchhaven scene: a compact settlement above a live map of folder rooms.
+// Agents move between file desks as they read, edit and run tools. Drawn as
 // one SVG; SMIL runs every animation (typing, breathing, blinking, walking,
 // thinking dots, the bounce of a stuck agent), so nothing needs a redraw.
 
@@ -21,7 +18,7 @@ const GIT_COLORS: Record<Change['code'], string> = { M: '#e2c08d', A: '#73c991',
 const GOLD = '#d9bd78'
 
 const GAP = 10
-const WALL = 18
+const WALL = 22
 // One desk's cell: the character, the desk in front of it, its name plate.
 const DESK_W = 56
 const DESK_H = 86
@@ -110,30 +107,91 @@ const symbol = (id: string, s: { w: number; h: number }, inner: string) =>
   `<symbol id="${id}" viewBox="0 0 ${s.w} ${s.h}" shape-rendering="crispEdges">${inner}</symbol>`
 const use = (id: string, x: number, y: number, w: number, h: number) =>
   `<use href="#${id}" x="${x}" y="${y}" width="${w}" height="${h}"/>`
-const tile = (id: string, s: Sprite, scale = 1) =>
-  `<pattern id="${id}" width="${s.w * scale}" height="${s.h * scale}" patternUnits="userSpaceOnUse">` +
-  `<svg width="${s.w * scale}" height="${s.h * scale}" viewBox="0 0 ${s.w} ${s.h}" shape-rendering="crispEdges">${s.svg}</svg></pattern>`
-// A room's walls and floor, clipped to its rounded outline, and its name
-// plate in the top-right corner, clear of the bubbles over the desks.
+type RoomPalette = { wall: string; wallLight: string; wallLine: string; floor: string; floorLight: string; floorLine: string; wood: string }
+const ROOM_PALETTES: readonly RoomPalette[] = [
+  { wall: '#53675b', wallLight: '#6e7c66', wallLine: '#40534a', floor: '#405449', floorLight: '#526758', floorLine: '#2e413b', wood: '#9a7951' },
+  { wall: '#74624e', wallLight: '#8a7559', wallLine: '#5d5043', floor: '#55483d', floorLight: '#695747', floorLine: '#403931', wood: '#bf8b56' },
+  { wall: '#4a6460', wallLight: '#628079', wallLine: '#384f4d', floor: '#385454', floorLight: '#486664', floorLine: '#294446', wood: '#b9905d' },
+  { wall: '#65554b', wallLight: '#806456', wallLine: '#4b403d', floor: '#4e423a', floorLight: '#665344', floorLine: '#382f2d', wood: '#c18755' },
+  { wall: '#49616a', wallLight: '#62808a', wallLine: '#354e58', floor: '#39515a', floorLight: '#4c6970', floorLine: '#2c414a', wood: '#b28c5d' },
+  { wall: '#705c5a', wallLight: '#8a7169', wallLine: '#584848', floor: '#514546', floorLight: '#695453', floorLine: '#3b3339', wood: '#c09363' },
+]
+
+// Broad, low-contrast finishes give rooms depth without the old checkerboard
+// texture. The same finish is reused consistently for each folder.
+function materialPatterns(theme: number): string[] {
+  const p = ROOM_PALETTES[theme]!
+  return [
+    `<pattern id="floor${theme}" width="40" height="20" patternUnits="userSpaceOnUse"><rect width="40" height="20" fill="${p.floor}"/>` +
+      `<path d="M0 1H40M0 10H40M9 1V10M30 10V20" fill="none" stroke="${p.floorLine}" stroke-width="1" opacity=".62"/>` +
+      `<path d="M3 4h5m8 0h8m6 4h7M3 14h10m7 3h8" fill="none" stroke="${p.floorLight}" stroke-width=".7" opacity=".4"/>` +
+      `<path d="M1 2H39M1 11H39" fill="none" stroke="${p.floorLight}" stroke-width=".5" opacity=".22"/></pattern>`,
+    `<pattern id="wall${theme}" width="32" height="22" patternUnits="userSpaceOnUse"><rect width="32" height="22" fill="${p.wall}"/>` +
+      `<path d="M0 1H32M0 21H32M9 2v5m14-5v5M4 13h9m10 0h8" fill="none" stroke="${p.wallLine}" stroke-width="1" opacity=".54"/>` +
+      `<path d="M2 3h5m17 5h6M15 17h8" fill="none" stroke="${p.wallLight}" stroke-width="1" opacity=".38"/>` +
+      `<rect x="1" y="2" width="1" height="1" fill="${p.wood}" opacity=".5"/><rect x="29" y="16" width="1" height="1" fill="${p.wood}" opacity=".4"/></pattern>`,
+  ]
+}
+
+function roomWindow(x: number, y: number, accent: string): string {
+  return `<g shape-rendering="crispEdges"><rect x="${x}" y="${y}" width="20" height="14" fill="#1d2c32" stroke="#243035" stroke-width="1.5"/>` +
+    `<rect x="${x + 2}" y="${y + 2}" width="16" height="10" fill="#356169"/>` +
+    `<path d="M${x + 3} ${y + 3}h6v3H${x + 3}zM${x + 11} ${y + 3}h6v3h-6z" fill="#78a9a2" opacity=".7"/>` +
+    `<path d="M${x + 10} ${y + 2}v10M${x + 2} ${y + 7}h16" stroke="#263e3c" stroke-width="1.5"/>` +
+    `<rect x="${x - 1}" y="${y + 12}" width="22" height="2" fill="${accent}" opacity=".88"/></g>`
+}
+
+function wallKeepsake(x: number, y: number, style: number, p: RoomPalette, accent: string): string {
+  if (style === 0) {
+    return `<g shape-rendering="crispEdges"><rect x="${x}" y="${y + 2}" width="18" height="2" fill="${p.wood}"/>` +
+      `<rect x="${x + 2}" y="${y + 4}" width="3" height="5" fill="#b9a16d" stroke="#392f2a" stroke-width=".6"/>` +
+      `<rect x="${x + 8}" y="${y + 4}" width="3" height="4" fill="${accent}" stroke="#392f2a" stroke-width=".6"/>` +
+      `<rect x="${x + 14}" y="${y + 4}" width="2" height="6" fill="#557c5c" stroke="#263b31" stroke-width=".6"/></g>`
+  }
+  if (style === 1) {
+    return `<g shape-rendering="crispEdges"><rect x="${x + 2}" y="${y}" width="13" height="12" fill="#cdbb91" stroke="${p.wood}" stroke-width="1"/>` +
+      `<rect x="${x + 4}" y="${y + 2}" width="8" height="1" fill="${accent}"/><rect x="${x + 4}" y="${y + 5}" width="7" height="1" fill="#8f8064"/>` +
+      `<rect x="${x + 4}" y="${y + 8}" width="5" height="1" fill="#8f8064"/><circle cx="${x + 3}" cy="${y + 1}" r="1" fill="#d87865"/></g>`
+  }
+  return `<g shape-rendering="crispEdges"><path d="M${x + 3} ${y + 12}v-7l5-4l5 4v7z" fill="${p.wood}" stroke="#352f2b" stroke-width=".8"/>` +
+    `<rect x="${x + 5}" y="${y + 6}" width="6" height="6" fill="${accent}"/><rect x="${x + 7}" y="${y + 8}" width="2" height="4" fill="#26383b"/>` +
+    `<path d="M${x} ${y + 13}h17" stroke="${p.wood}" stroke-width="2"/></g>`
+}
+
+// Each room gets a timber frame, small view window and one quiet wall detail.
+// Its folder plate stays in the top-right, clear of activity bubbles.
 function room(id: string, x: number, y: number, w: number, h: number, theme: number, name: string): string {
   const t = ROOMS[theme]!
+  const p = ROOM_PALETTES[theme]!
   const label = clip(name, 20)
-  const plateW = label.length * 5.2 + 10
+  const plateW = label.length * 5.2 + 15
   const px = x + w - plateW - 4
+  const hasWindow = name !== 'Patchboard' && w > plateW + 38
+  const window = hasWindow ? roomWindow(x + 7, y + 4, t.accent) : ''
+  const keepsakeX = x + (hasWindow ? 33 : 8)
+  const keepsake = name !== 'Patchboard' && px - keepsakeX > 20
+    ? wallKeepsake(keepsakeX, y + 4, theme % 3, p, t.accent)
+    : ''
 
   return (
-    `<clipPath id="${id}"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2"/></clipPath>` +
+    `<clipPath id="${id}"><rect x="${x}" y="${y}" width="${w}" height="${h}"/></clipPath>` +
+    `<rect x="${x + 2}" y="${y + 3}" width="${w}" height="${h}" fill="#071315" opacity=".52"/>` +
     `<g clip-path="url(#${id})"><rect x="${x}" y="${y}" width="${w}" height="${h}" fill="url(#floor${theme})"/>` +
     `<rect x="${x}" y="${y}" width="${w}" height="${WALL}" fill="url(#wall${theme})"/>` +
-    `<rect x="${x}" y="${y + WALL}" width="${w}" height="2" fill="#00000066"/></g>` +
-    `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2" fill="none" stroke="#8c8964" stroke-width="1.2"/>` +
-    `<rect x="${px}" y="${y + 3}" width="${plateW}" height="12" rx="2" fill="#1b1b24e6" stroke="${t.accent}" stroke-width="0.8"/>` +
-    `<text x="${px + 5}" y="${y + 12}" font-size="8.5" font-weight="700" fill="${t.accent}">${esc(label)}</text>`
+    `<rect x="${x}" y="${y + WALL - 2}" width="${w}" height="3" fill="${p.wood}"/>` +
+    `<rect x="${x}" y="${y + WALL + 1}" width="${w}" height="2" fill="${p.floorLine}" opacity=".8"/>` +
+    `<rect x="${x + 2}" y="${y + 1}" width="${w - 4}" height="1" fill="${p.wallLight}" opacity=".65"/>` +
+    `<path d="M${x + 2} ${y + h - 2}h${w - 4}" stroke="#182527" stroke-width="2" opacity=".8"/>` +
+    window + keepsake + `</g>` +
+    `<rect x="${x + .5}" y="${y + .5}" width="${w - 1}" height="${h - 1}" fill="none" stroke="#1a2527" stroke-width="2"/>` +
+    `<rect x="${x + 2}" y="${y + 2}" width="${w - 4}" height="${h - 4}" fill="none" stroke="#b39a6d" stroke-width=".7" opacity=".72"/>` +
+    `<rect x="${px}" y="${y + 4}" width="${plateW}" height="12" fill="#17272b" stroke="${t.accent}" stroke-width=".9"/>` +
+    `<rect x="${px + 3}" y="${y + 7}" width="3" height="3" fill="${t.accent}"/>` +
+    `<text x="${px + 9}" y="${y + 12}" font-size="8" font-weight="700" fill="#f1e5c7">${esc(label)}</text>`
   )
 }
 
-// Quest colors as on a quest list, darkened to read on parchment.
-const QUEST = { pending: '#a31d1d', in_progress: '#8a6d00', completed: '#1e7b1e' } as const
+const QUEST = { pending: '#5a302b', in_progress: '#50380f', completed: '#1e4636' } as const
 const HALL_THEME = 2
 // Between turns Claude rests at the Inn, by the fire, until the next prompt.
 // Shell commands, searches and outside tools are worked at the Terminal's
@@ -202,15 +260,14 @@ function dummy(x: number, y: number): string {
   )
 }
 
-// The Quest Hall's chest, 18x12, at (x, y): wood, gold bands and a lock.
-function chest(x: number, y: number): string {
+// A stitched file archive, where commits are shelved rather than turned into loot.
+function archiveFiles(x: number, y: number): string {
   return (
-    `<g shape-rendering="crispEdges"><rect x="${x}" y="${y + 3}" width="18" height="9" fill="#1b1b24"/>` +
-    `<rect x="${x + 1}" y="${y + 4}" width="16" height="7" fill="#7a4a2a"/>` +
-    `<rect x="${x + 1}" y="${y}" width="16" height="5" rx="2" fill="#1b1b24"/>` +
-    `<rect x="${x + 2}" y="${y + 1}" width="14" height="3" rx="1" fill="#9a6232"/>` +
-    `<rect x="${x + 4}" y="${y}" width="2" height="12" fill="#d9a93a"/><rect x="${x + 12}" y="${y}" width="2" height="12" fill="#d9a93a"/>` +
-    `<rect x="${x + 8}" y="${y + 4}" width="2" height="3" fill="#f5c518"/></g>`
+    `<g shape-rendering="crispEdges"><path d="M${x + 1} ${y + 4}h13v7H${x + 1}z" fill="#d3c49d" stroke="#263b39" stroke-width="1"/>` +
+    `<path d="M${x + 4} ${y + 2}h13v8H${x + 4}z" fill="#a9bd9b" stroke="#263b39" stroke-width="1"/>` +
+    `<path d="M${x + 2} ${y + 5}h13v7H${x + 2}z" fill="#c9b98f" stroke="#263b39" stroke-width="1"/>` +
+    `<path d="M${x + 4} ${y + 7}h7m-7 2h5" stroke="#826e50" stroke-width=".8"/>` +
+    `<path d="M${x + 13} ${y + 6}v5" stroke="#d87865" stroke-width="2"/></g>`
   )
 }
 
@@ -268,7 +325,7 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
     else shelves.push([s])
   }
   // The scene is only as wide as its widest shelf needs (never narrower than
-  // the Quest Hall reads well at), and the pane scales it up to fit: one desk
+  // the Patchboard reads well at), and the pane scales it up to fit: one desk
   // is a close-up, a busy turn zooms out. Shelves then end flush with it.
   const fullest = Math.max(...shelves.map(sh => sh.reduce((n, s) => n + s.w, 0) + GAP * (sh.length - 1)))
   const width = Math.min(maxWidth, Math.max(MIN_WIDTH, Math.ceil(fullest + GAP * 2)))
@@ -299,8 +356,8 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
     y = home.height + GAP
   }
 
-  // The Quest Hall: the quest board, the chest, and where agents think, test
-  // and search. The board's text is sized against the zoom, so it is always
+// The Patchboard: work orders, the file archive, and a place for agents to
+// think, test and search. Its text is sized against the zoom, so it is always
   // about 11px on screen, and long steps wrap rather than being cut.
   {
     // Agents thinking, testing or searching stand in the hall, right of the board.
@@ -330,14 +387,13 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
     const boardH = steps.length ? fs * 1.6 + lineH * Math.max(lines.length, isQuestDone ? 1 : 0) + 8 : 0
     const hallH = Math.max(boardH ? WALL + boardH + 8 : WALL + 4, hallAgents.length ? WALL + FEET + 8 : 0)
     hallAgents.forEach((k, n) => deskAt.set(`#hall@${k}`, { x: GAP + w - 20 - n * 34, y: y + hallH - FEET - 4, left: GAP + w - 34 * hallAgents.length - 40, right: GAP + w }))
-    defs.add(tile(`floor${HALL_THEME}`, ROOMS[HALL_THEME]!.floor, 2))
-    defs.add(tile(`wall${HALL_THEME}`, ROOMS[HALL_THEME]!.wall))
-    floors.push(room('hall', GAP, y, w, hallH, HALL_THEME, 'Guild Hall'))
+    materialPatterns(HALL_THEME).forEach(pattern => defs.add(pattern))
+    floors.push(room('hall', GAP, y, w, hallH, HALL_THEME, 'Patchboard'))
     // The chest on the hall's wall, with this session's banked files beside it.
     chestAt = { x: GAP + 6, y: y + 3 }
     floors.push(
       `<rect x="${GAP + 4}" y="${y + 2}" width="${bank ? 22 + String(bank.total).length * 5 + 34 : 22}" height="14" rx="2" fill="#1b1b24cc"/>`,
-      chest(chestAt.x, chestAt.y),
+      archiveFiles(chestAt.x, chestAt.y),
       bank ? `<text x="${GAP + 27}" y="${y + 12}" font-size="7.5" font-weight="700" fill="${GOLD}">${bank.total} banked</text>` : '',
     )
     // Compaction: old context deposited all at once, scrolls flying off the
@@ -373,10 +429,13 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
       const by = y + WALL + 4
       const done = steps.filter(st => st.status === 'completed').length
       floors.push(
-        `<rect x="${bx}" y="${by}" width="${bw}" height="${boardH}" rx="2" fill="#5a3a1e" stroke="#2a1a0c" stroke-width="1.2"/>`,
-        `<rect x="${bx + 3}" y="${by + 3}" width="${bw - 6}" height="${boardH - 6}" fill="#e9dbb1"/>`,
-        `<text x="${bx + 7}" y="${by + 3 + fs * 1.2}" font-size="${fs * 1.05}" font-weight="700" fill="${isQuestDone ? '#8a6a1e' : '#3b2412'}">` +
-          `${isQuestDone ? `✓ Quest complete! · ${steps.length} steps` : `Quests ${done}/${steps.length}`}</text>`,
+        `<rect x="${bx}" y="${by}" width="${bw}" height="${boardH}" fill="#263b39" stroke="#142426" stroke-width="1.4"/>`,
+        `<rect x="${bx + 3}" y="${by + 3}" width="${bw - 6}" height="${boardH - 6}" fill="#b9a77f"/>`,
+        `<rect x="${bx + 3}" y="${by + 3}" width="${bw - 6}" height="${fs * 1.65}" fill="#405d53"/>`,
+        `<path d="M${bx + 5} ${by + 4}h${Math.max(0, bw - 10)}" stroke="#8eab83" stroke-width=".8" opacity=".8"/>`,
+        `<circle cx="${bx + 7}" cy="${by + 7}" r="1.6" fill="#d87865"/><circle cx="${bx + bw - 7}" cy="${by + 7}" r="1.6" fill="#d87865"/>`,
+        `<text x="${bx + 12}" y="${by + 3 + fs * 1.2}" font-size="${fs * 1.05}" font-weight="700" fill="#f0e5c6">` +
+          `${isQuestDone ? `✓ All patches complete · ${steps.length} steps` : `Work orders ${done}/${steps.length}`}</text>`,
       )
       lines.forEach((l, i) => {
         const isNow = l.status === 'in_progress'
@@ -424,8 +483,7 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
       const isInn = r.name === INN
       const isTerminal = r.name === TERMINAL
       const t = isInn ? INN_THEME : isTerminal ? TERMINAL_THEME : isForge ? FORGE_THEME : themeOf(r.name)
-      defs.add(tile(`floor${t}`, ROOMS[t]!.floor, 2))
-      defs.add(tile(`wall${t}`, ROOMS[t]!.wall))
+      materialPatterns(t).forEach(pattern => defs.add(pattern))
       floors.push(room(`r${id++}`, x, y, roomW, rowH, t, r.name))
       // Desks spread evenly across the room, not bunched at its left.
       const step = Math.max(DESK_W, (roomW - 6) / perRow)
@@ -611,7 +669,7 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
       // At the Terminal: typing at the rune console while the command runs.
       const commanding = act.mode === 'shell' && act.isActive
       const searching = act.mode === 'web' && act.isActive
-      // Reading the quests: at the Quest Hall's board, book open.
+      // Reading the work orders at the Patchboard.
       const questing = act.mode === 'quests' && act.file === '#hall'
       const pose = pondering || questing || searching || background ? [3, 4] : testing || commanding ? [1, 2] : act.isActive ? (act.isEdit ? [1, 2] : [3, 4]) : [0]
       for (const f of pose) defs.add(symbol(`c${index}f${f}`, ch, ch.frames[f] ?? ''))
@@ -777,9 +835,10 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
   let svg =
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" font-family="ui-monospace,Menlo,Consolas,monospace">` +
     `<defs>${[...defs].join('')}</defs>` +
-    // A dark backdrop, so nothing white ever shows between redraws.
-    `<rect width="${width}" height="${height}" fill="#213b32"/>` +
-    `<path d="M${width / 2} 0V${height}" fill="none" stroke="#9c8b69" stroke-width="5" opacity="0.6"/>` +
+    // A quiet, continuous backdrop lets the settlement and room frames carry
+    // the scene without a dividing seam through the middle.
+    `<rect width="${width}" height="${height}" fill="#172b2d"/>` +
+    `<rect y="${height - 3}" width="${width}" height="3" fill="#233c37" opacity=".8"/>` +
     floors.join('') +
     bodies.join('') +
     furniture.join('') +

@@ -98,7 +98,7 @@ out = {
                 "glow": "".join(p.split(' d="')[1].rstrip('"/>') for p in paths(glow).split("<path")[1:])},
     "plant": sprite(fur["plant"]),
     "chair": sprite(fur["chair"]),
-    "rooms": [{"name": r["name"], "accent": r["accent"], "floor": sprite(r["floorTile"]), "wall": sprite(r["wallStrip"])} for r in art["rooms"]],
+    "rooms": [{"name": r["name"], "accent": r["accent"]} for r in art["rooms"]],
     "icons": {k: sprite(v) for k, v in art["icons"].items()},
 }
 
@@ -108,7 +108,7 @@ ts = [
     "// ranger and smith (subagents, in turn), and the scenery.",
     "export type Sprite = { w: number; h: number; svg: string }",
     "export type Character = { w: number; h: number; frames: readonly string[] }",
-    "export type Room = { name: string; accent: string; floor: Sprite; wall: Sprite }",
+    "export type Room = { name: string; accent: string }",
     "",
     "// Frames: idle, typing A, typing B, reading A, reading B; each frame is SVG paths.",
     f"export const CHARACTERS: readonly Character[] = {json.dumps(out['characters'])}",

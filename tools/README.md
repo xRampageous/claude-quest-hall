@@ -1,6 +1,6 @@
-# Art tools
+# Patchhaven art tools
 
-How the Workbench's art was made, so characters and scenery can be added or
+How Patchhaven's art was made, so characters and scenery can be added or
 changed later. All need Python 3 with Pillow (`pip install pillow`).
 
 ## A new character
@@ -36,10 +36,19 @@ Every sprite becomes compact SVG paths in `hooks/art.ts`:
 python tools/gen_art.py .
 ```
 
+The marketplace icon is drawn at 64 pixels and scaled up with nearest-neighbor
+filtering:
+
+```bash
+python tools/gen_icon.py
+```
+
 ## Scenery
 
-Rooms, furniture and icons are pixel grids in `assets/workbench-art.json`.
-Check it and render a preview sheet with:
+Furniture and icons are pixel grids in `assets/workbench-art.json`. Room
+palettes live there; the renderer draws their walls and floors as larger,
+low-contrast SVG patterns so repeated tiles stay subtle.
+Check the sprite grids and render a preview sheet with:
 
 ```bash
 python tools/check_art.py assets/workbench-art.json preview.png
