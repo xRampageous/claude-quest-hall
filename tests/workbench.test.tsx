@@ -36,7 +36,7 @@ function world($: Parameters<Parameters<typeof test>[1]>[0], on: Parameters<Para
   return clock
 }
 
-test('the scene shows quests, rooms and the Coding level, and an edit earns XP', async ($, on) => {
+test('the compact patch trail shows files, quests and the Coding level', async ($, on) => {
   const clock = world($, on)
   await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
   await $.tool.call({ tool: 'mcp__ccd_turn__update_plan', items: [{ content: 'Ship the rooms', status: 'in_progress' }] } as never)
@@ -50,9 +50,11 @@ test('the scene shows quests, rooms and the Coding level, and an edit earns XP',
   expect(texts).toContain('18 xp')
   const scene = await ui.find({ type: 'Svg' })
   const svg = String((scene as unknown as { props: { source: string } }).props.source)
-  expect(svg).toContain('Patchboard')
-  expect(svg).toContain('aria-label="Patchhaven settlement"')
-  expect(svg).toContain('Work orders 0/1')
+  expect(svg).toContain('PATCHBOARD')
+  expect(svg).toContain('aria-label="Patchhaven patch trail"')
+  expect(svg).toContain('0/1 WORK ORDERS')
+  expect(svg).toContain('stroke-dasharray="1 4"')
+  expect(Number(/viewBox="0 0 [\d.]+ ([\d.]+)/.exec(svg)?.[1])).toBeLessThan(100)
   expect(svg).toContain('id="floor')
   expect(svg).not.toContain('Guild Hall')
   // The quest is on Patchhaven's board, in the scene.
@@ -78,27 +80,29 @@ test('thinking, creating, teleporting and banking all show in the scene', async 
     return { svg, texts }
   }
 
-  // Thinking before touching anything: the wizard studies the quest board, reading.
-  expect((await svgOf()).svg).toContain('c0f3')
+  // Before the first file appears, Claude waits by the Patchboard and idles.
+  const thinking = await svgOf()
+  expect(thinking.svg).toContain('PATCHBOARD')
+  expect(thinking.svg).toContain('<animateTransform')
 
   // Creating a file: its desk wears a NEW tag (the ✚ bubble shows only while it is written).
   await $.tool.call({ tool: 'Write', file_path: 'C:\\proj\\src\\Fresh.java', content: 'x\ny\nz' })
   const made = await svgOf()
-  expect(made.svg).toContain('>NEW<')
+  expect(made.svg).toContain('NEW · +3')
   // Git knows nothing of it yet, so its desk counts the lines the Write wrote,
   // and the header adds them to the session's total.
-  expect(made.svg).toContain('<tspan fill="#73c991">+3</tspan>')
+  expect(made.svg).toContain('+3')
   expect(made.texts).toContain('+3')
 
   // A subagent's first file: it teleports in.
   await $.tool.call({ tool: 'Edit', file_path: 'C:\\proj\\src\\Engine.java', old_string: 'a', new_string: 'b', agentId: 'sub-1' } as never)
-  expect((await svgOf()).svg).toContain('#9cc8ff')
+  expect((await svgOf()).svg).toContain('#67c7c0')
 
   // A commit banks its files.
   await $.tool.call({ tool: 'Bash', command: 'git commit -m "msg"' } as never)
   const banked = await svgOf()
-  expect(banked.svg).toContain('2 banked')
-  expect(banked.texts).toContain('2 edits · 2 files · 0 quests · 2 banked')
+  expect(banked.svg).toContain('2 BANKED')
+  expect(banked.texts).toContain('2 edits · 2 files · 0 quests')
   await clock.advance(10)
 })
 
@@ -164,20 +168,20 @@ test('commands run in the Terminal; a refusal splats; the usage limit is out of 
     return { svg, texts }
   }
 
-  // A shell command: the Terminal room appears, and the header says what ran.
+  // A shell command: the Terminal site appears with a short command label.
   await $.tool.call({ tool: 'Bash', command: 'git status --short' } as never)
   const ran = await shown()
-  expect(ran.svg).toContain('>Terminal<')
-  expect(ran.texts).toContain('Terminal · $ git status')
+  expect(ran.svg).toContain('TERMINAL')
+  expect(ran.svg).toContain('$ git status')
 
-  // A refused tool: a ✋ splat.
+  // A refused tool: a red warning splat.
   await $.classic.PermissionDenied({ tool_name: 'Bash', tool_input: {}, tool_use_id: 't1', reason: 'denied' } as never)
   expect((await shown()).svg).toContain('✋')
 
   // The usage limit: out of run energy, in the scene and the header.
   await $.classic.StopFailure({ error: 'rate_limit' } as never)
   const spent = await shown()
-  expect(spent.svg).toContain('Out of run energy')
+  expect(spent.svg).toContain('OUT OF RUN ENERGY')
   expect(spent.texts).toContain('Out of run energy · usage limit reached')
 })
 
@@ -224,15 +228,15 @@ test('board help lists its commands without changing the plan setting', async ($
   expect((await $.command.run({ command: 'board', args: 'plan' })).text).toBe("Claude's steps show under each message again.")
 })
 
-test('between turns, Claude rests at the Inn and dozes off later', async ($, on) => {
+test('between turns, Claude waits at the patch camp', async ($, on) => {
   world($, on)
   await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const scene = await ui.find({ type: 'Svg' })
   const svg = String((scene as unknown as { props: { source: string } }).props.source)
-  expect(svg).toContain('>Inn<')
-  expect(svg).toContain('ready for a quest')
-  expect(svg).toContain('begin="120s"')
+  expect(svg).toContain('AT CAMP')
+  expect(svg).toContain('Waiting at camp')
+  expect(svg).toContain('Open a file and the trail will form.')
   await ui.unmount()
 })
 
@@ -251,15 +255,14 @@ test('every surface shows the quests: on the Patchboard, or as text in a termina
   }
 })
 
-test('the board text keeps the same on-screen size at any zoom', async ($, on) => {
+test('the patch labels stay compact at pane width', async ($, on) => {
   world($, on)
   await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
   await $.tool.call({ tool: 'mcp__ccd_turn__update_plan', items: [{ content: 'Ship the rooms', status: 'pending' }] } as never)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const scene = (await ui.find({ type: 'Svg' })) as unknown as { props: { source: string; width: number } }
   const viewBox = Number(/viewBox="0 0 ([\d.]+)/.exec(scene.props.source)?.[1])
-  const size = Number(/font-size="([\d.]+)" fill="#5a302b"/.exec(scene.props.source)?.[1])
-  // Units times zoom: 11px on screen.
-  expect(Math.round(size * (scene.props.width / viewBox))).toBe(11)
+  const size = Number(/font-size="([\d.]+)" fill="#f0efdc"/.exec(scene.props.source)?.[1])
+  expect(Math.round(size * (scene.props.width / viewBox))).toBe(8)
   await ui.unmount()
 })

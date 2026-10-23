@@ -1,6 +1,6 @@
 {
   "name": "claude-quest-hall",
-  "description": "Patchhaven: a living map of Claude's file work, background crew, settlement and private journal.",
+  "description": "Patchhaven: a compact pixel-art map of live file work, quests and background crew.",
   "owner": { "name": "xRampageous" },
   "plugins": [{ "name": "task-board", "source": "./" }]
 }

@@ -1,7 +1,7 @@
 {
   "name": "task-board",
-  "version": "2.0.0",
-  "description": "Patchhaven: Claude's live file rooms and desks with a growing settlement, background crew roster and private work journal. Open it with /haven or /board.",
+  "version": "2.1.0",
+  "description": "Patchhaven: a compact pixel-art trail through live files, quests and background agents. Open it with /haven or /board.",
   "author": {
     "name": "xRampageous"
   },
