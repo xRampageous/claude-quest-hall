@@ -147,6 +147,18 @@ test('commands run in the Terminal; a refusal splats; the usage limit is out of 
   expect(spent.texts).toContain('Out of run energy · usage limit reached')
 })
 
+test('XP saved by another copy of the mod carries over', async ($, on) => {
+  world($, on)
+  on('env.get', (_, e) => ({ value: String(e.name) === 'CLAUDE_CONFIG_DIR' ? 'C:/home/.claude' : undefined }))
+  on('fs.list', () => ({ value: [{ name: 'task-board_inline-1.json', kind: 'file', size: 12, mtimeMs: 1, isLink: false }] }))
+  on('fs.read', () => ({ value: '{"xp":9262}' }))
+  await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')
+  expect(texts).toContain('9,262 xp')
+  await ui.unmount()
+})
+
 test('between turns, Claude rests at the Inn and dozes off later', async ($, on) => {
   world($, on)
   await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })

@@ -96,6 +96,26 @@ function linesOf(input: Record<string, unknown>): { add: number; del: number } {
   }
 }
 
+// The highest XP any copy of this mod has saved on this machine: a copy
+// installed from GitHub and one run from a folder keep separate stores, and
+// the Coding level should follow you between them. Nothing found is 0.
+async function xpElsewhere($: EngineInterface): Promise<number> {
+  try {
+    const home = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${(await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')) ?? ''}/.claude`
+    const dir = `${posix(home)}/plugins/store`
+    const stores = (await $.fs.list(dir)).filter(f => f.kind === 'file' && f.name.startsWith('task-board_') && f.name.endsWith('.json'))
+    let best = 0
+    for (const f of stores) {
+      const saved = JSON.parse(String(await $.fs.read(`${dir}/${f.name}`))) as { xp?: unknown }
+      best = Math.max(best, Number(saved.xp) || 0)
+    }
+
+    return best
+  } catch {
+    return 0
+  }
+}
+
 // The level for an amount of XP, on the classic curve: level 2 at 83 XP,
 // 99 at about 13 million.
 function levelOf(total: number): { level: number; from: number; to: number } {
@@ -207,8 +227,9 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     ownsPlan = (await $.store.get(OWN_PLAN_KEY)) !== false
     isSoundOn = (await $.store.get(SOUND_KEY)) === true
-    const earned = Number((await $.store.get(XP_KEY)) ?? 0)
+    const earned = Math.max(Number((await $.store.get(XP_KEY)) ?? 0), await xpElsewhere($))
     await update($, xp, () => earned)
+    await $.store.set(XP_KEY, earned).catch(() => undefined)
     // Every few seconds of a turn: redraw so idle agents show, and toast once
     // for an agent waiting on you or idle for two minutes.
     $.clock.every(5000, async () => {
