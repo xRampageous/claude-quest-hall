@@ -13,9 +13,9 @@ const GIT: Record<string, string> = {
   diff: '3\t1\tsrc/Engine.java\n',
 }
 
-function world($: Parameters<Parameters<typeof test>[1]>[0], on: Parameters<Parameters<typeof test>[1]>[1]) {
+function world($: Parameters<Parameters<typeof test>[1]>[0], on: Parameters<Parameters<typeof test>[1]>[1], options: { mockStore?: boolean } = {}) {
   const clock = mock.clock(on)
-  mock.store(on)
+  if (options.mockStore !== false) mock.store(on)
   on('command.register', () => ({ value: { command: 'x' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -157,6 +157,37 @@ test('XP saved by another copy of the mod carries over', async ($, on) => {
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')
   expect(texts).toContain('9,262 xp')
   await ui.unmount()
+})
+
+test('a failed XP save preserves the successful edit and its XP feedback', async ($, on) => {
+  world($, on, { mockStore: false })
+  let saves = 0
+  on('store.get', () => ({ value: undefined }))
+  on('store.set', () => {
+    saves++
+    return { deny: 'The store is read-only' }
+  })
+  await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
+  const ran = await $.tool.call({ tool: 'Edit', file_path: 'C:\\proj\\src\\Engine.java', old_string: 'a', new_string: 'b\nc' })
+  expect(ran.result).toBe('ok')
+  expect(saves).toBe(2)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')
+  expect(texts).toContain('18 xp')
+  expect(texts).toContain('1 edit')
+  const scene = await ui.find({ type: 'Svg' })
+  expect(String((scene as unknown as { props: { source: string } }).props.source)).toContain('>+18<')
+  await ui.unmount()
+})
+
+test('board help lists its commands without changing the plan setting', async ($, on) => {
+  world($, on)
+  await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
+  const help = await $.command.run({ command: 'board', args: 'help' })
+  expect(help.text).toContain('/board sound')
+  expect(help.text).toContain('/board plan')
+  expect((await $.command.run({ command: 'board', args: '?' })).text).toBe(help.text)
+  expect((await $.command.run({ command: 'board', args: 'plan' })).text).toBe("Claude's steps show under each message again.")
 })
 
 test('between turns, Claude rests at the Inn and dozes off later', async ($, on) => {

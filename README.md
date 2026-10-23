@@ -87,10 +87,32 @@ key, or `gh auth login` then `gh auth setup-git`).
 ## Commands
 
 - `/board`: open the Workbench.
+- `/board help` (or `/board ?`): list the commands and settings.
 - `/board sound`: turn chimes on or off (off at first). One chime when Claude
   needs your permission, another when a turn ends.
 - `/board plan`: show Claude's step list under each message again, or move it
   back to the Workbench.
+
+## Development
+
+From the repository root, use a Claude Code version that supports mod tests:
+
+```bash
+claude plugin test
+claude plugin validate . --strict
+```
+
+The tests run without a Claude session, sign-in or network access. They cover
+quest completion, failed and refused plan updates, XP storage failures, the
+rendered scene, terminal fallback and drawing size with a large working tree.
+
+If an older installed CLI does not recognize `plugin test`, the version used
+to verify this release can be run without replacing it:
+
+```bash
+npx --yes @anthropic-ai/claude-code@2.1.309 plugin test
+npx --yes @anthropic-ai/claude-code@2.1.309 plugin validate . --strict
+```
 
 ## Art
 

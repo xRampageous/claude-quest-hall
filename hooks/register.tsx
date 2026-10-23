@@ -144,6 +144,26 @@ function advance(list: Step[]): Step[] {
   return next
 }
 
+// Account for an accepted plan before returning an owned update to the app.
+// Compare the actual steps: their order and the plan's length can change.
+async function showPlan($: EngineInterface, plan: Step[]) {
+  const before = await read($, steps)
+  const wasComplete = before.length > 0 && before.every(s => s.status === 'completed')
+  const alreadyDone = new Set(before.filter(s => s.status === 'completed').map(s => s.text))
+  const done = plan.filter(s => s.status === 'completed')
+  const newlyDone = done.filter(s => !alreadyDone.has(s.text))
+  await update($, steps, () => plan)
+
+  if (plan.length > 0 && done.length === plan.length) {
+    if (!wasComplete) {
+      await update($, stats, s => ({ ...s, quests: s.quests + 1 }))
+      $.ui.toast(`Congratulations, quest complete! (${plan.length} step${plan.length === 1 ? '' : 's'})`)
+    }
+  } else if (newlyDone.length > 0) {
+    $.ui.toast(`Quest step complete: ${newlyDone[newlyDone.length - 1]!.text}`)
+  }
+}
+
 // Re-reads git a moment after the last change, so a burst of edits costs one scan.
 let scan: { cancel(): void } | undefined
 function rescan($: EngineInterface) {
@@ -246,12 +266,15 @@ export const register: Register = on => {
       await update($, pulse, n => n + 1)
     })
     rescan($)
-    await $.command.register({ name: 'board', description: 'Open the Workbench. /board sound turns chimes on or off; /board plan moves the step list back under messages' })
+    await $.command.register({ name: 'board', description: 'Open the Workbench. /board help lists its commands and settings' })
     return next(e)
   })
 
   on('command.run', { command: 'board' }, async ($, e) => {
     const arg = e.args.trim().toLowerCase()
+    if (arg === 'help' || arg === '?') {
+      return { text: '/board — open the Workbench.\n/board sound — toggle chimes for approvals and completed turns.\n/board plan — toggle whether steps also appear under messages.\n/board help — show these commands.' }
+    }
     if (arg === 'sound') {
       isSoundOn = !isSoundOn
       await $.store.set(SOUND_KEY, isSoundOn)
@@ -274,42 +297,35 @@ export const register: Register = on => {
     // A tool call carries its input fields on the event itself.
     const input = e as unknown as Record<string, unknown>
 
-    const doneBefore = (await read($, steps)).filter(s => s.status === 'completed').length
-    // Reading or updating the quests: the agent goes to the Quest Hall's board,
-    // and stays there until its next file.
-    if (e.tool === 'TodoWrite' || e.tool.endsWith('update_plan')) {
-      const agent = await agentOf($, e.agentId ?? '')
-      await update($, activity, a => ({ ...a, [agent]: { tool: 'quests', file: '#hall', at: Date.now(), isActive: false, isEdit: false, mode: 'quests' } }))
-    }
-    // Claude's own task list: the desktop app's plan tool, or TodoWrite in a terminal.
-    if (e.tool === 'TodoWrite' && Array.isArray(input.todos)) {
-      const list = (input.todos as { content: string; status: Step['status'] }[]).map(t => ({ text: t.content, status: t.status }))
-      await update($, steps, () => list)
-    } else if (e.tool.endsWith('update_plan')) {
-      if (Array.isArray(input.items)) {
-        const list = (input.items as { content: string; status: Step['status'] }[]).map(t => ({ text: t.content, status: t.status }))
-        await update($, steps, () => list)
-      } else if (input.advance) {
-        await update($, steps, advance)
+    const isPlan = e.tool.endsWith('update_plan')
+    const isTodo = e.tool === 'TodoWrite'
+    const isWrap = e.tool.endsWith('wrap_up')
+    if (isPlan || isTodo || isWrap) {
+      // Owned plans are answered here; other tools must succeed before their
+      // requested changes become visible or earn a completed quest.
+      const ran = isPlan && ownsPlan ? undefined : await next(e)
+      await answered($, e.agentId ?? '')
+      if (ran?.deny || ran?.isError) {
+        if (ran.isError && !ran.deny) await hit($, await agentOf($, e.agentId ?? ''), String(ran.text ?? e.tool))
+        return ran
       }
-      // Answered here, the app never gets the list to draw under the message.
-      if (ownsPlan) {
-        const n = (await read($, steps)).length
+      if (isPlan || isTodo) {
+        const agent = await agentOf($, e.agentId ?? '')
+        await update($, activity, a => ({ ...a, [agent]: { tool: 'quests', file: '#hall', at: Date.now(), isActive: false, isEdit: false, mode: 'quests' } }))
+      }
+      let plan = await read($, steps)
+      const items = isTodo ? input.todos : input.items
+      if ((isTodo || isPlan) && Array.isArray(items)) {
+        plan = (items as { content: string; status: Step['status'] }[]).map(t => ({ text: t.content, status: t.status }))
+      } else if (isPlan && input.advance) {
+        plan = advance(plan)
+      } else if (isWrap) {
+        plan = plan.map(s => ({ ...s, status: 'completed' as const }))
+      }
+      await showPlan($, plan)
+      if (ran) return ran
 
-        return { result: `Plan shown in the Workbench (${n} steps).` } as never
-      }
-    } else if (e.tool.endsWith('wrap_up')) {
-      await update($, steps, l => l.map(s => ({ ...s, status: 'completed' as const })))
-    }
-    const plan = await read($, steps)
-    const doneNow = plan.filter(s => s.status === 'completed')
-    if (doneNow.length > doneBefore) {
-      if (doneNow.length === plan.length) await update($, stats, s => ({ ...s, quests: s.quests + 1 }))
-      $.ui.toast(
-        doneNow.length === plan.length
-          ? `Congratulations, quest complete! (${plan.length} steps)`
-          : `Quest step complete: ${doneNow[doneNow.length - 1]?.text ?? ''}`,
-      )
+      return { result: `Plan shown in the Workbench (${plan.length} steps).` } as never
     }
 
     const path = posix(String(input.file_path ?? input.notebook_path ?? ''))
@@ -393,7 +409,8 @@ export const register: Register = on => {
         const gained = xpFor(input)
         const before = levelOf(await read($, xp)).level
         const total = await update($, xp, n => n + gained)
-        await $.store.set(XP_KEY, total)
+        // A failed save must not interrupt the successful edit's XP feedback.
+        await $.store.set(XP_KEY, total).catch(() => undefined)
         await update($, drops, d => ({ ...d, [path]: { xp: gained, at: Date.now() } }))
         const after = levelOf(total).level
         if (after > before) {
