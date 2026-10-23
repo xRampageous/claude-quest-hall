@@ -53,12 +53,16 @@ starts earning XP from activity after this version is installed.
 ## The living map
 
 The **Patch Trail** is one timber guild hall with a continuous wall and floor.
-Its Patchboard is mounted on the wall, the hearth is where Claude rests between
-turns, and the Terminal appears when shell work is running. Up to six file
-districts use workstations that fit their role: coding desks, a test dummy and
-check table, a reading nook, or the Forge anvil. Claude and the visible crew
-move between these places; larger crews appear as a compact crowd count. Earned
-landmarks light the hall's progress marks.
+Its Patchboard is mounted above the work floor, the hearth is where Claude rests
+between turns, and the Terminal appears for shell work. Background agents with
+no current file meet at the Crew Lodge; active workers move to their file
+district or the Terminal, and the roster keeps their task, state and last known
+place visible. Up to six file districts use workstations that fit their role:
+coding desks, a test dummy and check table, a reading nook, or the Forge anvil.
+The map grows taller as more districts become active so station labels and
+characters remain readable. Fire, forge embers, terminal cursors, footsteps and
+the route marker animate when motion is on. Earned landmarks light the hall's
+progress marks.
 
 The HUD keeps your hero, Coding level, XP, edits, files and quest progress beside
 the map. **Trail**, **Focus** and **Log** move between the project, a selected
@@ -66,8 +70,8 @@ worker's activity and the visit journal. The expandable **Crew** panel includes
 every known agent task, including reviewers that have not reached a file yet.
 It shows who is working, waiting between tools, running in the background,
 waiting for approval, finished or failed, plus their last known location.
-The floor plan adjusts to narrow panes, while the scale setting can enlarge the
-map in wider panes.
+The floor plan adjusts to narrow panes, and **comfortable** and **large** scale
+settings zoom the complete map, including its room art, labels and characters.
 
 ## Three stages of progress
 
@@ -120,9 +124,13 @@ With Claude Code 2.1.309 or later, run the plugin checks from the repository
 root:
 
 ```bash
+npx --yes tsx tools/render-preview.ts
 npx --yes @anthropic-ai/claude-code@2.1.309 plugin test
 npx --yes @anthropic-ai/claude-code@2.1.309 plugin validate . --strict
 ```
+
+Pass a pane width to the preview renderer to inspect the single-column layout,
+for example `npx --yes tsx tools/render-preview.ts 304`.
 
 In Claude Desktop, open a project, use `/haven`, start work that reads and edits
 files, then try a delegated background task. The **Crew** panel and the sample

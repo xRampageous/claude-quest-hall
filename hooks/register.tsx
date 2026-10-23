@@ -11,7 +11,7 @@ import type { HavenSize, HavenView, VisitRecap } from './haven'
 import { advanceReplay, initHaven, recordHaven, saveRecap, setProfile } from './haven-state'
 
 const PANE = 'task-board'
-const PATCHHAVEN_VERSION = '2.2.2'
+const PATCHHAVEN_VERSION = '2.2.3'
 // Whether Patchhaven takes over the app's own task list under each message.
 const OWN_PLAN_KEY = 'ownPlan'
 let ownsPlan = true
@@ -262,7 +262,7 @@ async function syncAgentRoster($: EngineInterface) {
         return {
           ...a,
           [key]: old?.isActive ? old : {
-            tool: '', file: old?.file ?? '#hall', at: old?.at ?? Date.now(), isActive: false,
+            tool: '', file: old?.file ?? '#crew', at: old?.at ?? Date.now(), isActive: false,
             isEdit: old?.isEdit ?? false, mode: 'background',
           },
         }
@@ -472,7 +472,7 @@ function demoFixture(mode: DemoMode, now: number) {
   const crew: CrewAgent[] = many
     ? Array.from({ length: 7 }, (_, index) => ({ id: `demo-review-${index + 1}`, index: index + 1, name: `Sonnet reviewer ${index + 1}`, type: 'reviewer', description: `Review ${paths[index % paths.length]}`, status: 'running' }))
     : mode === 'complete' ? [{ id: 'demo-review-1', index: 1, name: 'Sonnet reviewer', type: 'reviewer', description: 'Finished checking the patch', status: 'completed' }] : []
-  const location = (index: number) => mode === 'approval' && index === 1 ? '#terminal' : ['#hall', '#terminal', paths[0]!, paths[1]!, paths[2]!, paths[3]!, paths[0]!][index - 1] ?? '#hall'
+  const location = (index: number) => mode === 'approval' && index === 1 ? '#terminal' : ['#crew', '#terminal', paths[0]!, paths[1]!, paths[2]!, paths[3]!, paths[0]!][index - 1] ?? '#crew'
   const activity: Record<string, Activity> = { 0: { tool: mode === 'edit' ? 'Edit' : '', file: mode === 'idle' || mode === 'complete' ? '#inn' : mode === 'failure' ? '#terminal' : paths[0]!, at: now, isActive: mode === 'edit' || mode === 'approval' || mode === 'failure', isEdit: mode === 'edit' } }
   for (const member of crew) activity[String(member.index)] = { tool: 'Review', file: location(member.index), at: now - member.index * 8000, isActive: many, isEdit: false, mode: member.index === 2 ? 'test' : member.index === 3 ? 'web' : 'background' }
   const steps: Step[] = mode === 'idle' ? [] : mode === 'complete'
@@ -671,6 +671,7 @@ export const register: Register = on => {
     await update($, failure, () => null)
     await update($, stoppedAt, () => null)
     await update($, asking, () => ({}))
+    await update($, activity, a => ({ ...a, '0': { tool: '', file: '#hall', at: Date.now(), isActive: false, isEdit: false } }))
     await update($, questState, s => s.status === 'blocked' ? { ...s, status: 'active' } : s)
     const state = await read($, haven)
     const session = await read($, stats)
@@ -711,7 +712,7 @@ export const register: Register = on => {
         { id: spawned.agentId!, index, name: '', type: String(e.subagentType ?? ''), description: String(e.description ?? '').slice(0, 180), status: 'running' },
       ])
       if (!wasTracked) await update($, stats, s => ({ ...s, crew: (s.crew ?? 0) + 1 }))
-      await update($, activity, a => ({ ...a, [String(index)]: a[String(index)] ?? { tool: '', file: '#hall', at: Date.now(), isActive: false, isEdit: false, mode: 'background' } }))
+      await update($, activity, a => ({ ...a, [String(index)]: a[String(index)] ?? { tool: '', file: '#crew', at: Date.now(), isActive: false, isEdit: false, mode: 'background' } }))
     }
 
     return spawned
@@ -774,6 +775,9 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     await update($, isTurn, () => false)
     await update($, asking, () => ({}))
+    if (e.reason !== 'aborted') {
+      await update($, activity, a => ({ ...a, '0': { ...(a['0'] ?? { tool: '', file: '#inn', at: Date.now(), isActive: false, isEdit: false }), file: '#inn', isActive: false } }))
+    }
     if (e.reason === 'aborted') await blockQuest($)
     await syncAgentRoster($)
     if (e.reason === 'aborted') await update($, stoppedAt, () => Date.now())
@@ -861,14 +865,16 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
   const tasks = playback ? {} : fixture ? Object.fromEntries(roster.map(agent => [agent.id, agent.description])) : await read($, jobs)
   const waiting = playback ? {} : fixture ? fixture.asking : await read($, asking)
   const selectedCrewId = await read($, selectedCrew)
+  const focusAgentId = selectedCrewId !== '0' && !roster.some(agent => String(agent.index) === selectedCrewId) ? '0' : selectedCrewId
   const startedAt = await read($, turnStart)
   const elapsed = turn && startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0
   const clock = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`
 
-  // Where an agent is: its room's folder trail and file, or the Patchboard
-  // or the Inn, as the scene draws it.
+  // Where an agent is: its room's folder trail and file, or the Patchboard,
+  // Crew Lodge, Terminal, or Inn, as the scene draws it.
   const whereOf = (agent: string, act: Activity): string => {
     if (agent === '0' && !turn) return 'Inn · waiting for you'
+    if (act.file === '#crew') return 'Crew Lodge · between tasks'
     if (act.file === '#hall') return act.mode === 'quests' ? 'Patchboard · reading work orders' : 'Patchboard'
     if (act.file === '#terminal') return `Terminal · ${act.tool}`
     const path = relativeFile(root, act.file) ?? act.file
@@ -1081,7 +1087,7 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
   }
 
   const renderWidth = Math.max(200, Math.min(560, (e.props.bodyColumns ?? 40) * 8))
-  const zoom = profile?.size === 'large' ? 1.18 : profile?.size === 'comfortable' ? 1.08 : 1
+  const zoom = profile?.size === 'large' ? 1.22 : profile?.size === 'comfortable' ? 1.12 : 1
   const width = renderWidth / zoom
   let rooms = fixture ? fixture.rooms : roomsOf(touched, playback ? {} : git, Object.values(acts).map(a => a.file))
   if (!fixture) rooms = rooms.map(room => {
@@ -1092,17 +1098,18 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
     return { ...room, key, slot: home?.siteSlots[key] }
   })
   const backgroundAgentIndexes = !playback && !liveTurn ? [...runningIndexes] : []
-  const focusActivity = acts[selectedCrewId] ?? acts['0']
-  const focusPath = selectedCrewId !== '0' ? focusActivity?.file : liveTurn ? acts[0]?.file : runningCrew.map(a => acts[String(a.index)]?.file).find(file => file && !file.startsWith('#')) ?? acts[0]?.file
+  const focusActivity = acts[focusAgentId] ?? acts['0']
+  const focusPath = focusAgentId !== '0' ? focusActivity?.file : liveTurn ? acts[0]?.file : runningCrew.map(a => acts[String(a.index)]?.file).find(file => file && !file.startsWith('#')) ?? acts[0]?.file
   if (profile?.view === 'focus') {
     const focusedRoom = rooms.find(r => r.desks.some(d => d.path === focusPath))
     rooms = focusedRoom ? [focusedRoom] : focusPath?.startsWith('#') ? [] : rooms.slice(0, 1)
   }
-  const sceneKey = `${profile?.view}:${playback?.run.id ?? 'live'}:${profile?.size ?? 'auto'}:${Math.round(width)}:${demo ?? 'live'}`
+  const sceneKey = `${profile?.view}:${focusAgentId}:${playback?.run.id ?? 'live'}:${profile?.size ?? 'auto'}:${Math.round(width)}:${demo ?? 'live'}`
   if (lastSceneKey !== sceneKey) { lastSpots = {}; lastSceneKey = sceneKey }
   const questStatus = fixture?.questStatus ?? (await read($, questState)).status
   const drawn = drawRooms({
     haven: home ? { hero: home.profile.hero, landmarks: home.landmarks, motion: home.profile.motion, size: home.profile.size, title: home.profile.title } : undefined,
+    focusAgent: profile?.view === 'focus' ? focusAgentId : undefined,
     backgroundAgents: playback ? [] : backgroundAgentIndexes,
     crew: roster,
     crewTotal: runningCrew.length,

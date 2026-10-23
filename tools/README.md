@@ -48,6 +48,10 @@ python tools/gen_icon.py
 Furniture and icons are pixel grids in `assets/workbench-art.json`. Room
 palettes live there; the renderer draws their walls and floors as larger,
 low-contrast SVG patterns so repeated tiles stay subtle.
+
+Regenerate the living map example with `npx --yes tsx tools/render-preview.ts`.
+Pass a pane width, such as `304`, to inspect the narrow single-column layout.
+The renderer updates the SVG preview under `assets/`.
 Check the sprite grids and render a preview sheet with:
 
 ```bash

@@ -7,6 +7,7 @@ export type Room = { key?: string; slot?: number; name: string; desks: Desk[] }
 
 export type Scene = {
   haven?: { hero: Hero; landmarks: readonly Landmark[]; motion: boolean; size?: 'auto' | 'comfortable' | 'large'; title?: string }
+  focusAgent?: string
   backgroundAgents?: readonly string[]
   crew?: readonly CrewAgent[]
   crewTotal?: number

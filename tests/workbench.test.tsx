@@ -56,8 +56,8 @@ test('the compact patch trail shows files, quests and the Coding level', async (
   expect(svg).toContain('PATCHHAVEN GUILD HALL')
   expect(svg).toContain('aria-label="Patchhaven patch trail"')
   expect(svg).toContain('BOARD 0/1')
-  expect(svg).toContain('stroke-dasharray="1 4"')
-  const spriteHeights = [...svg.matchAll(/<svg x="[^"]+" y="[^"]+" width="[\d.]+" height="([\d.]+)"/g)].map(match => Number(match[1]))
+  expect(svg).toContain('stroke-dasharray="1 5"')
+  const spriteHeights = [...svg.matchAll(/<(?:svg|use)[^>]*\bheight="([\d.]+)"/g)].map(match => Number(match[1]))
   expect(spriteHeights.length).toBeGreaterThan(0)
   expect(Math.min(...spriteHeights)).toBeGreaterThanOrEqual(29)
   expect(Number(/viewBox="0 0 [\d.]+ ([\d.]+)/.exec(svg)?.[1])).toBeGreaterThanOrEqual(200)
@@ -128,6 +128,11 @@ test('seven background reviewers appear in the expanded crew roster', async ($, 
   const roster = await ui.find({ key: 'crew-toggle' })
   expect(roster?.props.label).toBe('Background crew · 7 running · 7 tracked ▴')
   expect((await ui.findAll({ type: 'Svg' })).length).toBe(8)
+  const map = await ui.find({ type: 'Svg' })
+  const mapSvg = String((map as unknown as { props: { source: string } }).props.source)
+  expect(mapSvg).toContain('data-station="crew"')
+  expect(mapSvg).toContain('aria-label="Crew Lodge work station"')
+  expect(mapSvg).toContain('Review file 1')
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')
   const buttonLabels = (await ui.findAll({ type: 'Button' })).map(button => String(button.props.label ?? '')).join('\n')
   for (let i = 1; i <= 7; i++) {
@@ -142,6 +147,38 @@ test('seven background reviewers appear in the expanded crew roster', async ($, 
   expect((await terminal.findAll({ type: 'Svg' })).length).toBe(0)
   for (let i = 1; i <= 7; i++) expect(`${terminalTexts}\n${terminalButtons}`).toContain(`Sonnet 5.5 reviewer ${i}`)
   await terminal.unmount()
+})
+
+test('Focus follows one selected worker and keeps other agents off the map', async ($, on) => {
+  world($, on)
+  on('agent.list', () => ({ value: [
+    { id: 'review-1', name: 'First reviewer', type: 'reviewer', description: 'Check the API', status: 'running' },
+    { id: 'review-2', name: 'Second reviewer', type: 'reviewer', description: 'Check the UI', status: 'running' },
+  ] }))
+  await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'agent-select-review-2' })
+  await ui.unmount()
+
+  const focused = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const map = await focused.find({ type: 'Svg' }) as unknown as { props: { source: string } }
+  const svg = String(map.props.source)
+  expect(svg).toContain('data-station="crew"')
+  expect(svg).toContain('aria-label="Crew Lodge work station"')
+  expect((svg.match(/<svg x="/g) ?? []).length).toBe(1)
+  expect(svg).not.toContain('Review file 1')
+  await focused.unmount()
+})
+
+test('approval waits show a question marker on the worker', async ($, on) => {
+  world($, on)
+  await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'haven', args: 'demo approval' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const map = await ui.find({ type: 'Svg' }) as unknown as { props: { source: string } }
+  expect(String(map.props.source)).toContain('AWAITING YOU')
+  expect(String(map.props.source)).toContain('>?</text>')
+  await ui.unmount()
 })
 
 test('a failed tool lands a hitsplat; a test run trains at the dummy and splats pass or fail', async ($, on) => {
@@ -182,6 +219,7 @@ test('commands run in the Terminal; a refusal splats; the usage limit is out of 
   expect(ran.svg).toContain('TERMINAL')
   expect(ran.svg).toContain('data-station="terminal"')
   expect(ran.svg).toContain('$ git status')
+  expect(ran.svg).toContain('BETWEEN COMMANDS')
 
   // A refused tool: a red warning splat.
   await $.classic.PermissionDenied({ tool_name: 'Bash', tool_input: {}, tool_use_id: 't1', reason: 'denied' } as never)
@@ -282,4 +320,23 @@ test('the patch labels stay readable in narrow and wide panes', async ($, on) =>
     expect(size * (scene.props.width / viewBox)).toBeGreaterThanOrEqual(10)
     await ui.unmount()
   }
+})
+
+test('scale modes enlarge the full map and motion off pauses ambient animation', async ($, on) => {
+  world($, on)
+  await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
+  const svgOf = async () => {
+    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+    const scene = (await ui.find({ type: 'Svg' })) as unknown as { props: { source: string; height: number } }
+    const result = { source: String(scene.props.source), height: scene.props.height }
+    await ui.unmount()
+    return result
+  }
+  const normal = await svgOf()
+  await $.command.run({ command: 'haven', args: 'size large' })
+  const enlarged = await svgOf()
+  expect(enlarged.height).toBeGreaterThan(normal.height)
+  expect(enlarged.source).toContain('data-station="inn"')
+  await $.command.run({ command: 'haven', args: 'motion' })
+  expect((await svgOf()).source).not.toContain('<animate')
 })
