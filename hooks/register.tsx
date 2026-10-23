@@ -47,7 +47,7 @@ const TESTS = /(^|[;&|]\s*)(\S*gradlew?\S*\s[^;&|]*\btest|npm (run )?test|pnpm t
 const WEB = new Set(['WebSearch', 'WebFetch'])
 // Shell commands that apply a batch of changes at once.
 const APPLY = /(^|[;&|]\s*)(git\s+(apply|am|cherry-pick)|patch\s)/
-const stats = atom({ plugin: 'task-board', key: 'stats' } as const, { edits: 0, files: [], quests: 0 })
+const stats = atom({ plugin: 'task-board', key: 'stats' } as const, { edits: 0, files: [], quests: 0, xp: 0 })
 // A shell command that commits, outside a quoted string or a pipe's later part.
 const COMMIT = /(^|[;&|]\s*)git\s+(?:-\S+\s+)*commit\b/
 const XP_KEY = 'xp'
@@ -273,7 +273,22 @@ export const register: Register = on => {
   on('command.run', { command: 'board' }, async ($, e) => {
     const arg = e.args.trim().toLowerCase()
     if (arg === 'help' || arg === '?') {
-      return { text: '/board — open the Workbench.\n/board sound — toggle chimes for approvals and completed turns.\n/board plan — toggle whether steps also appear under messages.\n/board help — show these commands.' }
+      return { text: '/board — open the Workbench.\n/board stats (or recap) — show this session’s progress.\n/board sound — toggle chimes for approvals and completed turns.\n/board plan — toggle whether steps also appear under messages.\n/board help — show these commands.' }
+    }
+    if (arg === 'stats' || arg === 'recap') {
+      const session = await read($, stats)
+      const banked = await read($, bank)
+      const totalXp = await read($, xp)
+      const { level } = levelOf(totalXp)
+
+      return {
+        text: [
+          'Workbench session stats',
+          `Coding ${level} · ${totalXp.toLocaleString()} total XP · +${(session.xp ?? 0).toLocaleString()} this session`,
+          `${session.edits} edits · ${session.files.length} files · ${session.quests} quests complete`,
+          `${(session.add ?? 0).toLocaleString()} lines added · ${(session.del ?? 0).toLocaleString()} removed · ${banked?.total ?? 0} files banked`,
+        ].join('\n'),
+      }
     }
     if (arg === 'sound') {
       isSoundOn = !isSoundOn
@@ -399,14 +414,15 @@ export const register: Register = on => {
         const key = path.toLowerCase()
         const lines = linesOf(input)
         await update($, files, l => l.map(f => (f.path === path ? { ...f, add: (f.add ?? 0) + lines.add, del: (f.del ?? 0) + lines.del } : f)))
+        const gained = xpFor(input)
         await update($, stats, s => ({
           ...s,
           edits: s.edits + 1,
           files: s.files.includes(key) ? s.files : [...s.files, key].slice(-500),
+          xp: (s.xp ?? 0) + gained,
           add: (s.add ?? 0) + lines.add,
           del: (s.del ?? 0) + lines.del,
         }))
-        const gained = xpFor(input)
         const before = levelOf(await read($, xp)).level
         const total = await update($, xp, n => n + gained)
         // A failed save must not interrupt the successful edit's XP feedback.
