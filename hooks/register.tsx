@@ -11,7 +11,7 @@ import type { HavenSize, HavenView, VisitRecap } from './haven'
 import { advanceReplay, initHaven, recordHaven, saveRecap, setProfile } from './haven-state'
 
 const PANE = 'task-board'
-const PATCHHAVEN_VERSION = '2.2.0'
+const PATCHHAVEN_VERSION = '2.2.1'
 // Whether Patchhaven takes over the app's own task list under each message.
 const OWN_PLAN_KEY = 'ownPlan'
 let ownsPlan = true
@@ -903,10 +903,9 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
         <Text color="#d4bd7a" size="caption">Coding {level} · {total.toLocaleString()} xp</Text>
       </Box>
       <Text color="#b9c3ac" size="caption" wrap="truncate-end">
-        {demo ? 'SAMPLE SCENE · SAVED PROGRESS UNCHANGED' : <>{session.edits} edit{session.edits === 1 ? '' : 's'} · {session.files.length} file{session.files.length === 1 ? '' : 's'} · {session.quests} quest{session.quests === 1 ? '' : 's'} · {home?.landmarks.length ?? 0}/{LANDMARKS.length}
-        {session.add ? <Text color="#73c991">{`  +${session.add.toLocaleString()}`}</Text> : null}
-        {session.del ? <Text color="#f14c4c">{` −${session.del.toLocaleString()}`}</Text> : null}
-        {session.xp ? <Text color="#d4bd7a">{` · +${session.xp} visit`}</Text> : null}</>}
+        {demo
+          ? 'SAMPLE SCENE · SAVED PROGRESS UNCHANGED'
+          : `${session.edits} edits · ${session.files.length} files · ${session.quests} quests · ${home?.landmarks.length ?? 0}/${LANDMARKS.length}${session.add ? ` · +${session.add.toLocaleString()} lines` : ''}${session.del ? ` · −${session.del.toLocaleString()} lines` : ''}${session.xp ? ` · +${session.xp} visit XP` : ''}`}
       </Text>
       {home?.saveError && <Text color="#e4bd8a" size="caption">Progress is live for this visit; saving is unavailable.</Text>}
       {failed && (

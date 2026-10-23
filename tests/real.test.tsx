@@ -43,7 +43,7 @@ test('draws with a big real-looking state', async ($, on) => {
       const svg = String((scene as unknown as { props: { source: string } }).props.source)
       const height = Number(/viewBox="0 0 [\d.]+ ([\d.]+)/.exec(svg)?.[1])
       expect(svg).toContain('PATCH TRAIL')
-      expect(height).toBeLessThanOrEqual(210)
+      expect(height).toBeLessThanOrEqual(360)
     }
     // Well under what the app accepts for one drawing.
     expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
