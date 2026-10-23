@@ -27,9 +27,16 @@ In the desktop app, where `/plugin` does not run: click + next to the prompt
 box, then Plugins, Add marketplace with `xRampageous/claude-quest-hall`, then
 Add plugin.
 
-This repository is private: it installs only for people who can read it on
-GitHub and whose machine already has a git credential for github.com (an SSH
-key, or `gh auth login` then `gh auth setup-git`).
+The repository is public, so the marketplace install works without a GitHub
+credential. The repository does not currently include a software license;
+public visibility alone does not grant permission to reuse or redistribute the
+code.
+
+To update an installed copy from a terminal:
+
+```bash
+npx --yes @anthropic-ai/claude-code plugin update task-board@claude-quest-hall --scope user
+```
 
 ## What you see
 
@@ -87,6 +94,8 @@ key, or `gh auth login` then `gh auth setup-git`).
 ## Commands
 
 - `/board`: open the Workbench.
+- `/board stats` (or `/board recap`): show this session's XP, edits, files,
+  completed quests, line counts and files banked by commits.
 - `/board help` (or `/board ?`): list the commands and settings.
 - `/board sound`: turn chimes on or off (off at first). One chime when Claude
   needs your permission, another when a turn ends.

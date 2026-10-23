@@ -19,7 +19,7 @@ export type Change = { code: 'M' | 'A' | 'D' | 'R' | 'U'; add: number; del: numb
 export type Drop = { xp: number; at: number }
 // The last commit's files, when, and all files banked this session.
 export type Bank = { files: number; at: number; total: number }
-export type Stats = { edits: number; files: string[]; quests: number; add?: number; del?: number }
+export type Stats = { edits: number; files: string[]; quests: number; xp?: number; add?: number; del?: number }
 
 declare module 'claude-code' {
   interface PluginState {
