@@ -51,6 +51,9 @@ test('the compact patch trail shows files, quests and the Coding level', async (
   const scene = await ui.find({ type: 'Svg' })
   const svg = String((scene as unknown as { props: { source: string } }).props.source)
   expect(svg).toContain('PATCHBOARD')
+  expect(svg).toContain('data-station="board"')
+  expect(svg).toContain('data-station="folder"')
+  expect(svg).toContain('PATCHHAVEN GUILD HALL')
   expect(svg).toContain('aria-label="Patchhaven patch trail"')
   expect(svg).toContain('BOARD 0/1')
   expect(svg).toContain('stroke-dasharray="1 4"')
@@ -177,6 +180,7 @@ test('commands run in the Terminal; a refusal splats; the usage limit is out of 
   await $.tool.call({ tool: 'Bash', command: 'git status --short' } as never)
   const ran = await shown()
   expect(ran.svg).toContain('TERMINAL')
+  expect(ran.svg).toContain('data-station="terminal"')
   expect(ran.svg).toContain('$ git status')
 
   // A refused tool: a red warning splat.
@@ -233,14 +237,17 @@ test('board help lists its commands without changing the plan setting', async ($
   expect((await $.command.run({ command: 'board', args: 'plan' })).text).toBe("Claude's steps show under each message again.")
 })
 
-test('between turns, Claude waits at the patch camp', async ($, on) => {
+test('between turns, Claude rests by the hearth in the shared guild hall', async ($, on) => {
   world($, on)
   await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const scene = await ui.find({ type: 'Svg' })
   const svg = String((scene as unknown as { props: { source: string } }).props.source)
   expect(svg).toContain('AT CAMP')
-  expect(svg).toContain('PATCHHAVEN')
+  expect(svg).toContain('PATCHHAVEN GUILD HALL')
+  expect(svg).toContain('data-station="board"')
+  expect(svg).toContain('data-station="inn"')
+  expect(svg).not.toContain('data-station="terminal"')
   expect(Number(/viewBox="0 0 [\d.]+ ([\d.]+)/.exec(svg)?.[1])).toBeGreaterThanOrEqual(200)
   expect(Number(/font-size="([\d.]+)" font-weight="700" letter-spacing="1" fill="#e0c782">PATCH TRAIL/.exec(svg)?.[1])).toBeGreaterThanOrEqual(10)
   const heroHeight = Number(/<use href="#c\d+f0" x="[^"]+" y="[^"]+" width="[\d.]+" height="([\d.]+)"/.exec(svg)?.[1])

@@ -45,6 +45,7 @@ declare module 'claude-code' {
     'task-board': {
       haven: HavenState | null
       steps: Step[]
+      questState: { signature: string; status: 'idle' | 'active' | 'completed' | 'cancelled' | 'replaced' | 'blocked' }
       files: Touch[]
       agents: string[]
       // Current session's agent roster, including background tasks.
@@ -79,6 +80,9 @@ declare module 'claude-code' {
       failure: Failure | null
       // When you last stopped a turn, for the wizard's bubble at the Inn.
       stoppedAt: number | null
+      demoMode: 'idle' | 'edit' | 'crew' | 'approval' | 'failure' | 'complete' | null
+      selectedCrew: string
+      turnSnapshot: { seq: number; landmarks: string[]; edits: number; quests: number; crew: number; xp: number } | null
     }
   }
 }

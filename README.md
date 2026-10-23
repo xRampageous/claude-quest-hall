@@ -1,11 +1,11 @@
 # Patchhaven
 
 Patchhaven turns a Claude Code session into a living pixel-art work map. Claude
-and the agent crew travel between districts based on real file activity, while
-the settlement grows as you read, build, test and collaborate. It keeps the
-compact OSRS-inspired feel of an agent RPG, with a world shaped by your project.
+and the agent crew move between stations based on real file activity. Skills
+and landmarks track the work you do together, with a compact OSRS-inspired feel
+and a world shaped by your project.
 
-![Patchhaven preview showing the connected file trail and active crew](assets/patch-trail-preview.png)
+![Patchhaven preview showing the shared guild hall and active workstations](assets/patch-trail-preview.svg)
 
 Open Patchhaven with `/haven`. `/board` remains an alias.
 
@@ -52,12 +52,13 @@ starts earning XP from activity after this version is installed.
 
 ## The living map
 
-The **Patch Trail** combines the camp, terminal, patchboard and up to six file
-districts in one connected scene. Districts keep stable positions as you switch
-between files. Buildings reflect their work: code districts grow houses, tests
-get a training yard, docs gain a library, and the Forge has a smithy. Earned
-landmarks become part of the camp scene. Claude and a visible crew travel
-between these sites; larger crews appear as a compact crowd count.
+The **Patch Trail** is one timber guild hall with a continuous wall and floor.
+Its Patchboard is mounted on the wall, the hearth is where Claude rests between
+turns, and the Terminal appears when shell work is running. Up to six file
+districts use workstations that fit their role: coding desks, a test dummy and
+check table, a reading nook, or the Forge anvil. Claude and the visible crew
+move between these places; larger crews appear as a compact crowd count. Earned
+landmarks light the hall's progress marks.
 
 The HUD keeps your hero, Coding level, XP, edits, files and quest progress beside
 the map. **Trail**, **Focus** and **Log** move between the project, a selected
@@ -65,8 +66,8 @@ worker's activity and the visit journal. The expandable **Crew** panel includes
 every known agent task, including reviewers that have not reached a file yet.
 It shows who is working, waiting between tools, running in the background,
 waiting for approval, finished or failed, plus their last known location.
-District cards switch to a single column in narrow panes to keep file names and
-work status readable; the scale setting can enlarge the map in wider panes.
+The floor plan adjusts to narrow panes, while the scale setting can enlarge the
+map in wider panes.
 
 ## Three stages of progress
 
@@ -129,5 +130,5 @@ scenes in **More** show how those activities appear on the map.
 
 ## Art
 
-The terrain, work sites, camp and characters use original SVG and pixel-grid
-art. The small chimes are synthesized bell tones.
+The hall, workstations and characters use original SVG and pixel-grid art. The
+small chimes are synthesized bell tones.
