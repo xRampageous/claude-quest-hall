@@ -24,6 +24,9 @@ function world($: Parameters<Parameters<typeof test>[1]>[0], on: Parameters<Para
   on('process.run', (_, e) => ({
     value: { exitCode: 0, stdout: GIT[String(e.argv[4])] ?? '', stderr: '', isStdoutTruncated: false },
   }))
+  // The app's own events, answered plainly beneath the mod.
+  on('classic.PermissionDenied', () => ({}))
+  on('classic.StopFailure', () => ({}))
   // A commit answers the way git does, so the bank can count its files.
   on('tool.call', (_, e) => ({
     result: 'ok',
@@ -111,6 +114,37 @@ test('a failed tool lands a hitsplat; a test run trains at the dummy and splats 
   const passed = await svgOf()
   expect(passed).toContain('#2f8f2f')
   expect(passed).toContain('✓')
+})
+
+test('commands run in the Terminal; a refusal splats; the usage limit is out of run energy', async ($, on) => {
+  world($, on)
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
+  await $.prompt.submit({ text: 'go' } as never)
+  const shown = async () => {
+    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+    const svg = String(((await ui.find({ type: 'Svg' })) as unknown as { props: { source: string } }).props.source)
+    const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')
+    await ui.unmount()
+
+    return { svg, texts }
+  }
+
+  // A shell command: the Terminal room appears, and the header says what ran.
+  await $.tool.call({ tool: 'Bash', command: 'git status --short' } as never)
+  const ran = await shown()
+  expect(ran.svg).toContain('>Terminal<')
+  expect(ran.texts).toContain('Terminal · $ git status')
+
+  // A refused tool: a ✋ splat.
+  await $.classic.PermissionDenied({ tool_name: 'Bash', tool_input: {}, tool_use_id: 't1', reason: 'denied' } as never)
+  expect((await shown()).svg).toContain('✋')
+
+  // The usage limit: out of run energy, in the scene and the header.
+  await $.classic.StopFailure({ error: 'rate_limit' } as never)
+  const spent = await shown()
+  expect(spent.svg).toContain('Out of run energy')
+  expect(spent.texts).toContain('Out of run energy · usage limit reached')
 })
 
 test('between turns, Claude rests at the Inn and dozes off later', async ($, on) => {

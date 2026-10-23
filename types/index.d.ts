@@ -5,11 +5,14 @@ export type Step = { text: string; status: 'pending' | 'in_progress' | 'complete
 export type Touch = { path: string; agent: number; isActive: boolean; edits: number; kind: 'read' | 'edit'; isNew?: boolean; add?: number; del?: number }
 // What one agent did last: the tool, the file it was on, and when.
 // `mode`: what it is doing besides reading or editing a file: reading the quests
-// (in the Quest Hall), or running tests, searching the web or applying changes (at its desk).
+// (in the Quest Hall), running a command or an outside tool (in the Terminal), or running
+// tests, searching the web or applying changes (at its desk).
 // `isApply`: a batch of changes applied at once (MultiEdit, git apply, patch).
-export type Activity = { tool: string; file: string; at: number; isActive: boolean; isEdit: boolean; isNew?: boolean; isApply?: boolean; mode?: 'test' | 'web' | 'apply' | 'quests' }
+export type Activity = { tool: string; file: string; at: number; isActive: boolean; isEdit: boolean; isNew?: boolean; isApply?: boolean; mode?: 'test' | 'web' | 'apply' | 'quests' | 'shell' }
 // A hitsplat over a character: a failed tool's damage, or a test run's pass or fail.
-export type Splat = { kind: 'hit' | 'pass' | 'fail'; damage: number; at: number }
+export type Splat = { kind: 'hit' | 'pass' | 'fail' | 'denied'; damage: number; at: number }
+// A turn that died on an error: which one (rate_limit is the usage limit) and when.
+export type Failure = { error: string; at: number }
 // One file's git state: Modified, Added, Deleted, Renamed or Untracked.
 export type Change = { code: 'M' | 'A' | 'D' | 'R' | 'U'; add: number; del: number; mtimeMs: number }
 // XP an edit earned, floated up from its desk for a moment.
@@ -50,6 +53,9 @@ declare module 'claude-code' {
       jobs: Record<string, string>
       // When the current turn began, for the header's timer.
       turnStart: number
+      failure: Failure | null
+      // When you last stopped a turn, for the wizard's bubble at the Inn.
+      stoppedAt: number | null
     }
   }
 }

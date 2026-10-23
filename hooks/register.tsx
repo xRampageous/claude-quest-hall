@@ -28,6 +28,17 @@ const compactAt = atom({ plugin: 'task-board', key: 'compactAt' } as const, null
 const asking = atom({ plugin: 'task-board', key: 'asking' } as const, {})
 const jobs = atom({ plugin: 'task-board', key: 'jobs' } as const, {})
 const turnStart = atom({ plugin: 'task-board', key: 'turnStart' } as const, 0)
+const failure = atom({ plugin: 'task-board', key: 'failure' } as const, null)
+const stoppedAt = atom({ plugin: 'task-board', key: 'stoppedAt' } as const, null)
+// What a failed turn's error means, said plainly.
+const FAILURES: Record<string, string> = {
+  rate_limit: 'usage limit reached',
+  overloaded: 'the server is overloaded',
+  server_error: 'the server had an error',
+  billing_error: 'a billing problem',
+  authentication_failed: 'signed out',
+  max_output_tokens: 'the reply ran too long',
+}
 // Chimes when Claude needs you and when a turn ends: off until /board sound.
 const SOUND_KEY = 'sound'
 let isSoundOn = false
@@ -285,19 +296,39 @@ export const register: Register = on => {
     if (!path || !kind) {
       const command = String(input.command ?? '')
       const isShell = e.tool === 'Bash' || e.tool === 'PowerShell'
-      const mode = WEB.has(e.tool) ? 'web' : isShell && TESTS.test(command) ? 'test' : isShell && APPLY.test(command) ? 'apply' : undefined
+      const isOutside = e.tool.startsWith('mcp__') && !e.tool.startsWith('mcp__ccd_')
+      const isSearch = e.tool === 'Grep' || e.tool === 'Glob'
+      const mode = WEB.has(e.tool)
+        ? 'web'
+        : isShell && TESTS.test(command)
+          ? 'test'
+          : isShell && APPLY.test(command)
+            ? 'apply'
+            : isShell || isSearch || isOutside
+              ? 'shell'
+              : undefined
+      // What the Terminal's bubble says: the command's first words, the
+      // search's pattern, or the outside tool's own name.
+      const label = isShell
+        ? `$ ${command.trim().split(/\s+/).slice(0, 2).join(' ')}`
+        : isSearch
+          ? `⌕ ${String(input.pattern ?? '')}`
+          : isOutside
+            ? `⚙ ${e.tool.split('__').pop()}`
+            : mode ?? ''
       // Tests, web searches and applied patches happen where the agent already
       // is: a training dummy, a map scroll or a rune circle at its desk (or in
       // the Quest Hall if it has no desk yet).
       const agent = mode ? await agentOf($, e.agentId ?? '') : -1
-      const at = mode ? ((await read($, activity))[agent]?.file ?? '#hall') : '#hall'
+      // Commands, searches and outside tools are worked in the Terminal room.
+      const at = mode === 'shell' ? '#terminal' : mode ? ((await read($, activity))[agent]?.file ?? '#hall') : '#hall'
       if (mode) {
-        await update($, activity, a => ({ ...a, [agent]: { tool: mode, file: at, at: Date.now(), isActive: true, isEdit: false, mode } }))
+        await update($, activity, a => ({ ...a, [agent]: { tool: label, file: at, at: Date.now(), isActive: true, isEdit: false, mode } }))
       }
       const ran = await next(e)
       await answered($, e.agentId ?? '')
       if (mode) {
-        await update($, activity, a => ({ ...a, [agent]: { tool: mode, file: at, at: Date.now(), isActive: false, isEdit: false, mode } }))
+        await update($, activity, a => ({ ...a, [agent]: { tool: label, file: at, at: Date.now(), isActive: false, isEdit: false, mode } }))
       }
       if (mode === 'test' && !ran.deny) {
         const failed = ran.isError || /\b(FAIL(ED|URE)?|[1-9]\d* fail(ed|ing|ures?)?)\b/.test(String(ran.text ?? ''))
@@ -359,6 +390,8 @@ export const register: Register = on => {
     isFresh = true
     await update($, isTurn, () => true)
     await update($, turnStart, () => Date.now())
+    await update($, failure, () => null)
+    await update($, stoppedAt, () => null)
     await update($, asking, () => ({}))
     warned.clear()
     rescan($)
@@ -392,6 +425,35 @@ export const register: Register = on => {
     return spawned
   })
 
+  // A turn that died on an error: out of run energy for the usage limit,
+  // a grey banner for the rest, until the next prompt.
+  on('classic.StopFailure', async ($, e, next) => {
+    try {
+      await update($, failure, () => ({ error: e.error, at: Date.now() }))
+      $.ui.toast(e.error === 'rate_limit' ? 'Out of run energy: usage limit reached' : `The turn stopped: ${FAILURES[e.error] ?? e.error}`)
+    } catch {
+      // Only the scene misses it.
+    }
+
+    return next(e)
+  })
+
+  // A tool you refused: a ✋ splat on the character that asked.
+  on('classic.PermissionDenied', async ($, e, next) => {
+    try {
+      const agent = await agentOf($, e.agent_id ?? '')
+      await update($, splats, s => ({ ...s, [agent]: { kind: 'denied', damage: 0, at: Date.now() } }))
+      await update($, asking, a => {
+        const { [agent]: _, ...rest } = a
+        return rest
+      })
+    } catch {
+      // Only the scene misses it.
+    }
+
+    return next(e)
+  })
+
   // A subagent that finishes teleports out of the room it worked in.
   on('classic.SubagentStop', async ($, e, next) => {
     try {
@@ -414,6 +476,7 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     await update($, isTurn, () => false)
     await update($, asking, () => ({}))
+    if (e.reason === 'aborted') await update($, stoppedAt, () => Date.now())
     chime($, 'done')
 
     return next(e)
@@ -452,6 +515,7 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
   const bar = 12
   const filled = to > from ? Math.round(((total - from) / (to - from)) * bar) : bar
   const done = plan.filter(s => s.status === 'completed').length
+  const failed = await read($, failure)
   const loops = await read($, agents)
   const tasks = await read($, jobs)
   const startedAt = await read($, turnStart)
@@ -463,6 +527,7 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
   const whereOf = (agent: string, act: Activity): string => {
     if (agent === '0' && !turn) return 'Inn · waiting for you'
     if (act.file === '#hall') return act.mode === 'quests' ? 'Quest Hall · reading the quests' : 'Quest Hall'
+    if (act.file === '#terminal') return `Terminal · ${act.tool}`
     const path = act.file.toLowerCase().startsWith(`${root}/`) ? act.file.slice(root.length + 1) : act.file
     const parts = path.split('/')
     const file = parts.pop() ?? path
@@ -495,6 +560,11 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
         {session.add ? <Text color="#73c991">{`  +${session.add.toLocaleString()}`}</Text> : null}
         {session.del ? <Text color="#f14c4c">{` −${session.del.toLocaleString()}`}</Text> : null}
       </Text>
+      {failed && (
+        <Text color={failed.error === 'rate_limit' ? '#ff5b5b' : '#c8c8ce'} weight="semibold">
+          {failed.error === 'rate_limit' ? '⚡ Out of run energy · usage limit reached' : `⚠ Stopped · ${FAILURES[failed.error] ?? failed.error}`}
+        </Text>
+      )}
       {crew.map(([agent, act]) => {
         const index = agent === '0' ? 0 : 1 + ((Number(agent) - 1) % (CREW.length - 1))
         const who = CREW[index]!
@@ -561,6 +631,8 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
     departs: gone,
     compactAt: (await read($, compactAt)) ?? undefined,
     asking: await read($, asking),
+    failure: failed ?? undefined,
+    stoppedAt: (await read($, stoppedAt)) ?? undefined,
     bank: banked ?? undefined,
   })
   lastSpots = drawn.spots

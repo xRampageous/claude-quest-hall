@@ -1,4 +1,4 @@
-import type { Activity, Bank, Change, Drop, Splat, Step, Touch } from '../types'
+import type { Activity, Bank, Change, Drop, Failure, Splat, Step, Touch } from '../types'
 import { CHAIR, CHARACTERS, DESK, ICONS, MONITOR, PLANT, ROOMS } from './art'
 import type { Sprite } from './art'
 
@@ -129,6 +129,10 @@ function room(id: string, x: number, y: number, w: number, h: number, theme: num
 const QUEST = { pending: '#a31d1d', in_progress: '#8a6d00', completed: '#1e7b1e' } as const
 const HALL_THEME = 2
 // Between turns Claude rests at the Inn, by the fire, until the next prompt.
+// Shell commands, searches and outside tools are worked at the Terminal's
+// rune console, in a room of its own that appears once something is run.
+const TERMINAL = 'Terminal'
+const TERMINAL_THEME = 0
 const INN = 'Inn'
 const INN_THEME = 5
 const INN_W = 96
@@ -158,14 +162,17 @@ export type Scene = {
   compactAt?: number
   // Agents waiting on a permission prompt, from the app's own event.
   asking: Readonly<Record<string, number>>
+  // The error the last turn died on, and when you last stopped one.
+  failure?: Failure
+  stoppedAt?: number
 }
 
-const SPLAT = { hit: '#b3201e', pass: '#2f8f2f', fail: '#b3201e' } as const
+const SPLAT = { hit: '#b3201e', pass: '#2f8f2f', fail: '#b3201e', denied: '#5b6170' } as const
 
 // A hitsplat as a game draws one: a blob with the number (or a tick or a
 // cross for a test run) that pops in and fades.
 function splat(sp: Splat, y: number): string {
-  const text = sp.kind === 'hit' ? String(sp.damage) : sp.kind === 'pass' ? '✓' : '✗'
+  const text = sp.kind === 'hit' ? String(sp.damage) : sp.kind === 'pass' ? '✓' : sp.kind === 'denied' ? '✋' : '✗'
   return (
     `<g><animateTransform attributeName="transform" type="scale" values="0.4;1.15;1" dur="0.25s" fill="freeze" additive="sum"/>` +
     `<animate attributeName="opacity" values="1;1;0" keyTimes="0;0.75;1" dur="1.8s" fill="freeze"/>` +
@@ -211,7 +218,12 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
   // Between turns, waiting for a prompt: Claude rests at the Inn, first in
   // the scene, and the last turn's rooms stay up with their desks quiet.
   const isResting = !isTurn
-  const rooms: readonly Room[] = isResting ? [{ name: INN, desks: [] }, ...scene.rooms] : scene.rooms
+  const atTerminal = isResting ? [] : Object.entries(activity).filter(([, a]) => a.file === '#terminal').map(([k]) => k)
+  const rooms: readonly Room[] = isResting
+    ? [{ name: INN, desks: [] }, ...scene.rooms]
+    : atTerminal.length
+      ? [...scene.rooms.filter(r => r.name === FORGE), { name: TERMINAL, desks: [] }, ...scene.rooms.filter(r => r.name !== FORGE)]
+      : scene.rooms
   const acting: Readonly<Record<string, Activity>> = isResting
     ? { 0: { tool: '', file: '#inn', at: now, isActive: false, isEdit: false } }
     : isPondering
@@ -226,6 +238,7 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
     const plate = clip(r.name, 20).length * 5.2 + 18 + (r.name === FORGE ? 30 : 0)
 
     if (r.name === INN) return { room: r, perRow, w: INN_W, h: WALL + DESK_H + 2 }
+    if (r.name === TERMINAL) return { room: r, perRow, w: 52 + 32 * atTerminal.length, h: WALL + DESK_H + 2 }
 
     return { room: r, perRow, w: Math.max(perRow * DESK_W + 6 + (r.name === FORGE ? 30 : 0), plate), h: WALL + Math.ceil(Math.max(1, r.desks.length) / perRow) * DESK_H + 2 }
   })
@@ -385,7 +398,8 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
       const roomW = natural + spare / shelf.length
       const isForge = r.name === FORGE
       const isInn = r.name === INN
-      const t = isInn ? INN_THEME : isForge ? FORGE_THEME : themeOf(r.name)
+      const isTerminal = r.name === TERMINAL
+      const t = isInn ? INN_THEME : isTerminal ? TERMINAL_THEME : isForge ? FORGE_THEME : themeOf(r.name)
       defs.add(tile(`floor${t}`, ROOMS[t]!.floor, 2))
       defs.add(tile(`wall${t}`, ROOMS[t]!.wall))
       floors.push(room(`r${id++}`, x, y, roomW, rowH, t, r.name))
@@ -393,7 +407,26 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
       const step = Math.max(DESK_W, (roomW - 6) / perRow)
       // A plant fills a corner wherever the desks leave one free.
       // The Forge has its furnace and anvil in the corner; other rooms a plant.
-      if (isInn) {
+      if (isTerminal) {
+        // A dim room lit by a rune console: a stone frame round a dark screen
+        // whose green lines scroll up, over and over.
+        const cx = x + 6
+        const cy = y + WALL + 10
+        floors.push(
+          `<rect x="${x}" y="${y + WALL}" width="${roomW}" height="${rowH - WALL}" fill="#05070d" opacity="0.5"/>`,
+          `<clipPath id="screen${id}"><rect x="${cx + 4}" y="${cy + 4}" width="26" height="34"/></clipPath>`,
+          `<rect x="${cx}" y="${cy}" width="34" height="42" rx="2" fill="#4a4a52" stroke="#1b1b24" stroke-width="1"/>`,
+          `<rect x="${cx + 4}" y="${cy + 4}" width="26" height="34" fill="#071a0f"/>`,
+          `<g clip-path="url(#screen${id})"><g><animateTransform attributeName="transform" type="translate" from="0 0" to="0 -24" dur="2.4s" repeatCount="indefinite"/>` +
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+              .map(n => `<rect x="${cx + 6}" y="${cy + 7 + n * 6}" width="${[14, 20, 9, 17, 12, 22, 8, 15, 19, 11, 16, 13][n]}" height="2" fill="${n % 4 === 0 ? '#9cf6b8' : '#3fd27a'}"/>`)
+              .join('') +
+            `</g></g>`,
+          `<rect x="${cx + 4}" y="${cy + 4}" width="26" height="34" fill="#3fd27a" opacity="0.08"><animate attributeName="opacity" values="0.08;0.16;0.08" dur="1.8s" repeatCount="indefinite"/></rect>`,
+          `<rect x="${cx + 2}" y="${cy + 42}" width="30" height="5" fill="#5a3a1e" stroke="#1b1b24" stroke-width="0.8"/>`,
+        )
+        atTerminal.forEach((k, n) => deskAt.set(`#terminal@${k}`, { x: x + 54 + n * 32, y: y + WALL + 8, left: x, right: x + roomW }))
+      } else if (isInn) {
         // A fireplace with live flames, a rug, and a stool by the fire.
         const fx = x + 8
         const fy = y + rowH - 4
@@ -531,6 +564,8 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
 
   // Characters behind their desks: each at the desk of its last file.
   const spots: Record<string, { x: number; y: number }> = {}
+  // How many bubbles each room (by its left edge) has so far.
+  const bubbled = new Map<number, number>()
   Object.entries(acting)
     .slice(0, MAX_AGENTS)
     .forEach(([agent, act], order) => {
@@ -538,7 +573,7 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
       const left = departs[agent]
       const isLeaving = left !== undefined && act.at <= left
       if (isLeaving && now - left > 2000) return
-      const at = deskAt.get(act.file === '#hall' ? `#hall@${agent}` : act.file)
+      const at = deskAt.get(act.file === '#hall' ? `#hall@${agent}` : act.file === '#terminal' ? `#terminal@${agent}` : act.file)
       if (!at) return
       spots[agent] = at
       // The wizard is Claude's alone; subagents take the rest of the cast in turn.
@@ -550,10 +585,12 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
       const pondering = agent === '0' && isPondering
       const applying = act.isActive && (act.isApply || act.mode === 'apply')
       const testing = act.mode === 'test' && act.isActive
+      // At the Terminal: typing at the rune console while the command runs.
+      const commanding = act.mode === 'shell' && act.isActive
       const searching = act.mode === 'web' && act.isActive
       // Reading the quests: at the Quest Hall's board, book open.
       const questing = act.mode === 'quests' && act.file === '#hall'
-      const pose = pondering || questing || searching ? [3, 4] : testing ? [1, 2] : act.isActive ? (act.isEdit ? [1, 2] : [3, 4]) : [0]
+      const pose = pondering || questing || searching ? [3, 4] : testing || commanding ? [1, 2] : act.isActive ? (act.isEdit ? [1, 2] : [3, 4]) : [0]
       for (const f of pose) defs.add(symbol(`c${index}f${f}`, ch, ch.frames[f] ?? ''))
       const frame = (f: number) => use(`c${index}f${f}`, -cw / 2, top, cw, CHAR_H)
       const body =
@@ -575,7 +612,7 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
       const color = AGENT_COLORS[Number(agent) % AGENT_COLORS.length]
       const waiting = scene.asking[agent] !== undefined
       const idle = !act.isActive && isTurn && now - act.at > 120_000
-      const thinking = !testing && !searching && !questing && (pondering || (isTurn && !act.isActive && !idle))
+      const thinking = !testing && !searching && !questing && !commanding && (pondering || (isTurn && !act.isActive && !idle))
       const drop = drops[act.file]
       const hopped = drop && now - drop.at < 1500
       const was = from[agent]
@@ -633,24 +670,38 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
           `<text x="${cw * 0.22}" y="${top + CHAR_H * 0.42 + 7}" font-size="6" font-weight="700" text-anchor="middle" fill="#b3201e">✗</text></g>`
         : ''
       const hitsplat = splats[agent] && now - splats[agent]!.at < 1800 ? splat(splats[agent]!, top + CHAR_H * 0.45) : ''
+      const isSpent = isResting && agent === '0' && scene.failure?.error === 'rate_limit'
       bodies.push(prop,
-        `<g transform="translate(${at.x} ${at.y})">${walk}`,
+        `<g transform="translate(${at.x} ${at.y})"${isSpent ? ' opacity="0.55"' : ''}>${walk}${isSpent ? '<g transform="translate(0 3)">' : ''}`,
         `<ellipse cx="0" cy="${FEET - 1}" rx="${cw / 2.6}" ry="2" fill="#000" opacity="0.35">${arrive}</ellipse>`,
-        `<g>${arrive}${motion}${body}${blink}${scroll}</g>${puff}</g>`,
+        `<g>${arrive}${motion}${body}${blink}${scroll}</g>${puff}${isSpent ? '</g>' : ''}</g>`,
       )
       // The hitsplat goes over desks and bubbles alike.
       if (hitsplat) overlays.push(`<g transform="translate(${at.x} ${at.y})">${hitsplat}</g>`)
 
       // The bubble over its head, drawn on top of every desk.
       const icon = waiting ? 'stuck' : idle ? 'idle' : ''
-      const full = isResting ? 'ready for a quest' : applying ? '✦ apply' : testing ? '⚔ tests' : searching ? '⌕ search' : questing ? '📜 quests' : waiting ? 'needs you' : idle ? 'idle' : thinking ? '' : `${act.isNew ? '✚' : act.isEdit ? '✎' : '◉'} ${clip(act.file.slice(act.file.lastIndexOf('/') + 1), 12)}`
+      // At the Inn after a failed or stopped turn, the bubble says why.
+      const restLine =
+        scene.failure?.error === 'rate_limit'
+          ? '⚡ out of run energy'
+          : scene.failure
+            ? '⚠ the turn failed'
+            : scene.stoppedAt !== undefined && now - scene.stoppedAt < 60_000
+              ? 'stopped'
+              : 'ready for a quest'
+      const full = isResting ? restLine : commanding ? act.tool : applying ? '✦ apply' : testing ? '⚔ tests' : searching ? '⌕ search' : questing ? '📜 quests' : waiting ? 'needs you' : idle ? 'idle' : thinking ? '' : `${act.isNew ? '✚' : act.isEdit ? '✎' : '◉'} ${clip(act.file.slice(act.file.lastIndexOf('/') + 1), 12)}`
       // Shortened to fit a narrow room.
       const fits = Math.max(3, Math.floor((at.right - at.left - 14 - (icon ? 11 : 0)) / 4.6))
       const label = clip(full, fits)
       const bw = thinking ? 26 : Math.min(118, 10 + label.length * 4.6 + (icon ? 11 : 0))
       // Kept inside its room: never over a neighbour's bubble.
       const bx = Math.max(at.left + 2 - at.x, Math.min(-bw / 2, at.right - 2 - at.x - bw))
-      const by = top - 14
+      // Every second agent in the same room has its bubble a row higher, so
+      // two side by side (at the Terminal, say) never cover each other's.
+      const neighbours = bubbled.get(at.left) ?? 0
+      bubbled.set(at.left, neighbours + 1)
+      const by = top - 14 - (neighbours % 2) * 13
       const inside = thinking
         ? [0, 1, 2]
             .map(
@@ -684,6 +735,20 @@ export function drawRooms(scene: Scene): { svg: string; width: number; height: n
         `</g></g>`,
       )
     })
+
+  // A failed turn: a banner across the top of the scene. The usage limit is
+  // out of run energy, in red; the rest are grey and name the problem.
+  if (scene.failure) {
+    const isLimit = scene.failure.error === 'rate_limit'
+    const bw = Math.min(width - GAP * 2, 150)
+    const bx = (width - bw) / 2
+    overlays.push(
+      `<rect x="${bx}" y="${GAP + 2}" width="${bw}" height="16" rx="3" fill="${isLimit ? '#3a0d0d' : '#24262e'}ee" stroke="${isLimit ? '#ff5b5b' : '#8a8f99'}" stroke-width="1"/>`,
+      `<text x="${width / 2}" y="${GAP + 13}" font-size="8" font-weight="700" text-anchor="middle" fill="${isLimit ? '#ff8a8a' : '#d0d3da'}">` +
+        `${isLimit ? '⚡ Out of run energy' : '⚠ The turn stopped'}` +
+        `${isLimit ? '<animate attributeName="opacity" values="1;0.55;1" dur="1.6s" repeatCount="indefinite"/>' : ''}</text>`,
+    )
+  }
 
   const height = Math.max(y, 40)
   const svg =
