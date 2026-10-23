@@ -5,14 +5,21 @@ import type { Activity, CrewAgent, Failure, Step, Touch } from '../types'
 import { readChanges } from './git'
 import { drawRooms, roomsOf } from './rooms'
 import type { Room } from './rooms'
+import { ACTION_GLYPHS, activityAction } from './living-trail'
+import type { ActorAction } from './living-trail'
 import { AGENT_QUEST_SPRITES } from './agentquest-sprites'
 import { absoluteFile, earnedRewards, eventText, HEROES, HERO_COLORS, LANDMARKS, recapText, relativeFile, replayFrame, REWARDS, settlementOf, skillLevel, SKILLS } from './haven'
 import type { HavenSize, HavenView, VisitRecap } from './haven'
 import { advanceReplay, initHaven, recordHaven, saveRecap, setProfile } from './haven-state'
 
 const PANE = 'task-board'
-const PATCHHAVEN_VERSION = '2.2.5'
+const PATCHHAVEN_VERSION = '2.2.6'
 const AGENT_QUEST_ROLES = ['mage', 'rogue', 'ranger', 'sage'] as const
+const CREW_ACTION_LABELS: Record<ActorAction, string> = {
+  editing: 'editing', creating: 'creating', reading: 'reading', searching: 'searching', testing: 'checking',
+  researching: 'researching', applying: 'applying', command: 'command', tool: 'using tool', delegating: 'delegating',
+  planning: 'planning', thinking: 'between tools', waiting: 'approval', working: 'working', idle: 'idle',
+}
 // Whether Patchhaven takes over the app's own task list under each message.
 const OWN_PLAN_KEY = 'ownPlan'
 let ownsPlan = true
@@ -331,14 +338,15 @@ async function track<T>($: EngineInterface, tool: string, path: string, loopId: 
   })
   const isEdit = kind === 'edit'
   const isApply = tool === 'MultiEdit'
-  await update($, activity, a => ({ ...a, [agent]: { tool, file: path, at: Date.now(), isActive: true, isEdit, isNew, isApply } }))
+  const mode = isNew ? 'create' : isApply ? 'apply' : kind === 'edit' ? 'edit' : 'read'
+  await update($, activity, a => ({ ...a, [agent]: { tool, file: path, at: Date.now(), isActive: true, isEdit, isNew, isApply, mode } }))
   warned.delete(`${agent}:idle`)
   warned.delete(`${agent}:waiting`)
   try {
     return await run()
   } finally {
     await update($, files, l => l.map(f => (f.path === path ? { ...f, isActive: false } : f)))
-    await update($, activity, a => ({ ...a, [agent]: { tool, file: path, at: Date.now(), isActive: false, isEdit, isNew, isApply } }))
+    await update($, activity, a => ({ ...a, [agent]: { tool, file: path, at: Date.now(), isActive: false, isEdit, isNew, isApply, mode } }))
   }
 }
 
@@ -562,17 +570,24 @@ export const register: Register = on => {
     if (!path || !kind) {
       const command = String(input.command ?? '')
       const isShell = e.tool === 'Bash' || e.tool === 'PowerShell'
-      const isOutside = e.tool.startsWith('mcp__') && !e.tool.startsWith('mcp__ccd_')
+      const isOutside = e.tool.startsWith('mcp__')
       const isSearch = e.tool === 'Grep' || e.tool === 'Glob'
+      const isCrewTool = /^(Task|Agent|Delegate|SpawnAgent|TeamCreate|TaskOutput)$/i.test(e.tool)
       const mode = WEB.has(e.tool)
         ? 'web'
-        : isShell && TESTS.test(command)
+        : isSearch
+          ? 'search'
+          : isShell && TESTS.test(command)
           ? 'test'
           : isShell && APPLY.test(command)
             ? 'apply'
-            : isShell || isSearch || isOutside
+            : isCrewTool
+              ? 'background'
+              : isShell
               ? 'shell'
-              : undefined
+              : isOutside
+                ? 'tool'
+                : 'tool'
       // What the Terminal's bubble says: the command's first words, the
       // search's pattern, or the outside tool's own name.
       const label = isShell
@@ -581,13 +596,15 @@ export const register: Register = on => {
           ? `⌕ ${String(input.pattern ?? '')}`
           : isOutside
             ? `⚙ ${e.tool.split('__').pop()}`
-            : mode ?? ''
+            : isCrewTool
+              ? `↗ ${String(input.description ?? e.tool)}`
+              : `⚙ ${e.tool}`
       // Tests, web searches and applied patches happen where the agent already
       // is: a training dummy, a map scroll or a rune circle at its desk (or in
       // the Patchboard if it has no desk yet).
       const agent = mode ? await agentOf($, e.agentId ?? '') : -1
       // Commands, searches and outside tools are worked in the Terminal room.
-      const at = mode === 'shell' ? '#terminal' : mode ? ((await read($, activity))[agent]?.file ?? '#hall') : '#hall'
+      const at = mode === 'shell' || mode === 'search' || mode === 'tool' ? '#terminal' : mode === 'background' ? '#crew' : ((await read($, activity))[agent]?.file ?? '#hall')
       if (mode) {
         await update($, activity, a => ({ ...a, [agent]: { tool: label, file: at, at: Date.now(), isActive: true, isEdit: false, mode } }))
       }
@@ -941,15 +958,21 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
       const act = acts[String(agent.index)]
       const location = act ? whereOf(String(agent.index), act) : 'Patchboard'
       const needsApproval = waiting[String(agent.index)] !== undefined
-      const state = needsApproval ? 'approval' : agent.status === 'running' ? liveTurn ? act?.isActive ? 'working' : 'between tools' : 'background' : agent.status === 'failed' ? 'failed' : agent.status === 'killed' ? 'stopped' : 'done'
+      const action = activityAction(act ?? { tool: '', file: '#crew', at: Date.now(), isActive: false, isEdit: false, mode: 'background' }, agent.status === 'running', needsApproval, false)
+      const state = needsApproval ? 'approval' : agent.status === 'running' ? act?.isActive ? CREW_ACTION_LABELS[action] : 'between tools' : agent.status === 'failed' ? 'failed' : agent.status === 'killed' ? 'stopped' : 'done'
       const color = needsApproval || agent.status === 'failed' ? '#e6a18b' : agent.status === 'running' ? '#9bc9a3' : '#b9c3ac'
       const hero = HEROES.indexOf(profile?.hero ?? 'wizard')
       const cast = [0, 1, 2, 3].filter(index => index !== hero)
       const role = AGENT_QUEST_ROLES[cast[(Math.max(1, agent.index) - 1) % cast.length] ?? 0]!
+      const sprite = AGENT_QUEST_SPRITES[role]!
+      const observing = ['reading', 'searching', 'researching', 'thinking', 'planning', 'waiting', 'idle'].includes(action)
+      const pose = agent.status === 'running' && act?.isActive && !observing ? sprite.attack[4] : sprite.idle[action === 'reading' || action === 'searching' || action === 'researching' || action === 'thinking' || action === 'planning' ? 'north' : 'south']
+      const animateAvatar = profile?.motion !== false && agent.status === 'running'
+      const avatarSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56" shape-rendering="crispEdges"><g><image href="' + pose + '" width="56" height="56" image-rendering="pixelated"/>' + (animateAvatar ? '<animateTransform attributeName="transform" type="translate" values="0 0;0 -1;0 0" dur="' + (act?.isActive ? '.55s' : '1s') + '" repeatCount="indefinite"/>' : '') + '</g>' + (agent.status === 'running' ? '<rect x="40" y="2" width="14" height="14" rx="3" fill="#1b3430" stroke="' + (act?.isActive ? '#efca75' : '#9cc8a1') + '" stroke-width="1"/><text x="47" y="12" text-anchor="middle" font-size="9" font-weight="700" fill="#ffe6a1">' + (needsApproval ? '?' : ACTION_GLYPHS[action]) + '</text>' : '') + '</svg>'
       const age = act?.at ? Math.max(0, Math.floor((Date.now() - act.at) / 1000)) : undefined
       const seen = age === undefined ? 'not seen yet' : age < 60 ? `${age}s` : `${Math.floor(age / 60)}m`
       return <Box key={`task-${agent.id}`} flexDirection="row" gap={1}>
-        {Svg && <Svg source={'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56"><image href="' + AGENT_QUEST_SPRITES[role]!.idle.south + '" width="56" height="56" image-rendering="pixelated"/></svg>'} width={18} height={24} alt={`${who} Agent Quest character`} />}
+        {Svg && <Svg source={avatarSvg} width={22} height={24} alt={`${who} Agent Quest ${state} character`} />}
         <Box flexDirection="column">
           <Box flexDirection="row" gap={1}>
             <Button key={`agent-select-${agent.id}`} label={`${String(agent.index) === selectedCrewId ? '◆ ' : '◇ '}${who}`} plain onPress={async () => { await update($, selectedCrew, () => String(agent.index)); await setProfile($, { view: 'focus' }) }} />

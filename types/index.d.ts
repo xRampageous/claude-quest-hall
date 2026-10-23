@@ -26,7 +26,7 @@ export type Touch = { path: string; agent: number; isActive: boolean; edits: num
 // (at the Patchboard), running a command or an outside tool (in the Terminal), or running
 // tests, searching the web or applying changes (at its desk).
 // `isApply`: a batch of changes applied at once (MultiEdit, git apply, patch).
-export type Activity = { tool: string; file: string; at: number; isActive: boolean; isEdit: boolean; isNew?: boolean; isApply?: boolean; mode?: 'test' | 'web' | 'apply' | 'quests' | 'shell' | 'background' }
+export type Activity = { tool: string; file: string; at: number; isActive: boolean; isEdit: boolean; isNew?: boolean; isApply?: boolean; mode?: 'test' | 'web' | 'apply' | 'edit' | 'create' | 'read' | 'search' | 'tool' | 'quests' | 'shell' | 'background' }
 export type CrewAgent = { id: string; index: number; name: string; type: string; description: string; status: 'running' | 'completed' | 'failed' | 'killed' }
 // A hitsplat over a character: a failed tool's damage, or a test run's pass or fail.
 export type Splat = { kind: 'hit' | 'pass' | 'fail' | 'denied'; damage: number; at: number }

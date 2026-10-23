@@ -7,6 +7,7 @@ import { AGENT_QUEST_SPRITES } from './agentquest-sprites'
 import type { AgentQuestDirection } from './agentquest-sprites'
 
 type Agent = { id: string; activity: Activity }
+export type ActorAction = 'editing' | 'creating' | 'reading' | 'searching' | 'testing' | 'researching' | 'applying' | 'command' | 'tool' | 'delegating' | 'planning' | 'thinking' | 'waiting' | 'working' | 'idle'
 type Node = {
   key: string
   kind: 'folder' | 'forge' | 'test' | 'library' | 'terminal' | 'board' | 'crew' | 'inn'
@@ -19,6 +20,10 @@ const COLORS = ['#d8a45e', '#67c7c0', '#d98cb2', '#9acb7b', '#d8c56e', '#8db9e0'
 const ROLES = ['mage', 'rogue', 'ranger', 'sage'] as const
 const SCENES = Object.keys(AGENT_QUEST_SCENES).sort()
 const FRAMES = [0, 4, 8] as const
+export const ACTION_GLYPHS: Record<ActorAction, string> = {
+  editing: 'E', creating: '+', reading: 'R', searching: 'S', testing: '✓', researching: 'O',
+  applying: 'A', command: '$', tool: '*', delegating: '>', planning: '=', thinking: '...', waiting: '?', working: '*', idle: '',
+}
 const esc = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 const clip = (value: string, length: number) => value.length > length ? value.slice(0, Math.max(1, length - 1)) + '…' : value
 const samePath = (a: string, b: string) => a.replace(/\\/g, '/').toLowerCase() === b.replace(/\\/g, '/').toLowerCase()
@@ -30,21 +35,56 @@ function palette(value: string) {
   return ROOMS[hash % ROOMS.length]!
 }
 
-function labelFor(activity: Activity, waiting: boolean): string {
-  if (waiting) return 'AWAITING YOU'
+export function activityAction(activity: Activity, running: boolean, waiting: boolean, turnActive: boolean): ActorAction {
+  if (waiting) return 'waiting'
   if (activity.isActive) {
-    if (activity.mode === 'test' || /test|lint|check/i.test(activity.tool)) return 'CHECKING PATCH'
-    if (activity.mode === 'web') return 'RESEARCHING'
-    if (activity.mode === 'apply' || activity.isApply) return 'APPLYING PATCH'
-    if (activity.mode === 'shell') return 'RUNNING COMMAND'
-    if (activity.isEdit) return 'PATCHING FILE'
+    if (activity.isNew || activity.mode === 'create') return 'creating'
+    if (activity.mode === 'test' || /test|lint|check/i.test(activity.tool)) return 'testing'
+    if (activity.mode === 'web') return 'researching'
+    if (activity.mode === 'apply' || activity.isApply) return 'applying'
+    if (activity.mode === 'read' || activity.tool === 'Read') return 'reading'
+    if (activity.mode === 'search' || /^(?:⌕\s*)?(?:Grep|Glob|Search)/i.test(activity.tool)) return 'searching'
+    if (activity.mode === 'quests') return 'planning'
+    if (activity.mode === 'shell') return 'command'
+    if (activity.mode === 'tool') return 'tool'
+    if (activity.mode === 'background') return /^(?:Task|Agent|Delegate)/i.test(activity.tool) ? 'delegating' : 'working'
+    if (activity.isEdit) return 'editing'
+    return 'working'
+  }
+  if (activity.mode === 'quests') return 'planning'
+  if (running || turnActive) return 'thinking'
+  return 'idle'
+}
+
+function labelFor(activity: Activity, waiting: boolean, running = false, turnActive = false): string {
+  const action = activityAction(activity, running, waiting, turnActive)
+  if (action === 'waiting') return 'AWAITING YOU'
+  if (activity.isActive) {
+    if (action === 'testing') return 'CHECKING PATCH'
+    if (action === 'researching') return 'RESEARCHING'
+    if (action === 'applying') return 'APPLYING PATCH'
+    if (action === 'command') return 'RUNNING COMMAND'
+    if (action === 'tool') return 'USING TOOL'
+    if (action === 'delegating') return 'SENDING CREW'
+    if (action === 'planning') return 'PLANNING PATCH'
+    if (action === 'reading') return 'READING FILE'
+    if (action === 'searching') return 'SEARCHING'
+    if (action === 'creating') return 'CREATING FILE'
+    if (action === 'editing') return 'EDITING FILE'
     return 'WORKING'
   }
+  if (action === 'planning') return 'PLANNING'
+  if (running) return 'BETWEEN TOOLS'
   if (activity.mode === 'test' || /test|lint|check/i.test(activity.tool)) return 'CHECK COMPLETE'
   if (activity.mode === 'web') return 'RESULT LOGGED'
-  if (activity.mode === 'apply' || activity.isApply) return 'PATCH READY'
+  if (activity.mode === 'apply' || activity.isApply) return 'PATCH APPLIED'
+  if (activity.mode === 'search') return 'SEARCH COMPLETE'
+  if (activity.mode === 'tool') return 'TOOL COMPLETE'
   if (activity.mode === 'shell') return 'BETWEEN COMMANDS'
+  if (activity.isNew) return 'FILE CREATED'
   if (activity.isEdit) return 'PATCH SAVED'
+  if (activity.mode === 'read' || activity.tool === 'Read') return 'READ COMPLETE'
+  if (action === 'thinking') return 'THINKING'
   if (activity.file === '#terminal') return 'IN TERMINAL'
   if (activity.file === '#crew') return 'BETWEEN TASKS'
   if (activity.file === '#hall') return 'PLANNING'
@@ -104,7 +144,7 @@ function frameAnimation(ids: readonly string[], x: number, y: number, width: num
 
 function character(role: typeof ROLES[number], height: number, working: boolean, walking: boolean, phase: number, motion: boolean, direction: AgentQuestDirection): string {
   const art = AGENT_QUEST_SPRITES[role]
-  const standing = working ? FRAMES.map(frame => `aq-${role}-attack-${frame}`) : [`aq-${role}-idle-south`]
+  const standing = working ? FRAMES.map(frame => `aq-${role}-attack-${frame}`) : [`aq-${role}-idle-${direction}`]
   const body = walking && motion
     ? '<g>' + frameAnimation(FRAMES.map(frame => `aq-${role}-walk-${direction}-${frame}`), 0, 0, 56, 56, .45, phase, true, '1') +
       '<animate attributeName="opacity" values="1;1;0" keyTimes="0;.9;1" dur=".45s" fill="freeze"/></g>' +
@@ -200,18 +240,23 @@ export function drawLivingTrail(scene: Scene): { svg: string; width: number; hei
   }
   if (scene.levelUp && scene.now - scene.levelUp.at < 6000) bits.push('<text x="' + (width / 2) + '" y="21" text-anchor="middle" font-size="' + (8 * scale) + '" font-weight="700" fill="#f1cc72">LEVEL UP · ' + scene.levelUp.level + '</text>')
 
-  const working = (actor: Agent) => actor.activity.isActive || (actor.id !== '0' && running.has(actor.id))
+  const assigned = (actor: Agent) => actor.activity.isActive || (actor.id !== '0' && running.has(actor.id))
   const drawActor = (actor: Agent, x: number, feet: number, size: number) => {
     const previous = scene.from[actor.id]
     const walking = Boolean(previous && motion && (Math.abs(previous.x - x) > 2 || Math.abs(previous.y - feet) > 2))
     const direction: AgentQuestDirection = walking ? x > previous!.x ? 'east' : x < previous!.x ? 'west' : feet < previous!.y ? 'north' : 'south' : 'south'
-    const busy = working(actor)
+    const waiting = scene.asking[actor.id] !== undefined
+    const isRunning = actor.id !== '0' && running.has(actor.id)
+    const turnActive = actor.id === '0' && scene.isTurn
+    const action = activityAction(actor.activity, isRunning, waiting, turnActive)
+    const actionDirection: AgentQuestDirection = action === 'reading' || action === 'searching' || action === 'researching' || action === 'thinking' || action === 'planning' ? 'north' : action === 'editing' || action === 'creating' || action === 'testing' || action === 'applying' || action === 'command' || action === 'tool' ? 'east' : 'south'
+    const activeMotion = actor.activity.isActive && ['editing', 'creating', 'testing', 'applying', 'command', 'tool', 'delegating', 'working'].includes(action)
     const role = roleFor(actor.id, hero)
     const art = AGENT_QUEST_SPRITES[role]!
     const color = COLORS[Number(actor.id) % COLORS.length]!
     if (walking) for (const frame of FRAMES) sprites.set(`aq-${role}-walk-${direction}-${frame}`, art.walk[direction][frame]!)
-    if (busy) for (const frame of FRAMES) sprites.set(`aq-${role}-attack-${frame}`, art.attack[frame]!)
-    else sprites.set(`aq-${role}-idle-south`, art.idle.south)
+    if (activeMotion) for (const frame of FRAMES) sprites.set(`aq-${role}-attack-${frame}`, art.attack[frame]!)
+    else sprites.set(`aq-${role}-idle-${actionDirection}`, art.idle[actionDirection])
     spots[actor.id] = { x, y: feet }
     bits.push('<ellipse cx="' + x + '" cy="' + (feet - 1) + '" rx="' + Math.max(4, size * .24) + '" ry="2" fill="#091211" opacity=".62"/>')
     bits.push('<path d="M' + (x - 2) + ' ' + (feet - 6) + 'l2-3 2 3-2 3z" fill="' + color + '" stroke="#17201d" stroke-width=".6"/>')
@@ -220,11 +265,21 @@ export function drawLivingTrail(scene: Scene): { svg: string; width: number; hei
     if (walking) bits.push('<animateTransform attributeName="transform" type="translate" from="' + (previous!.x - x) + ' ' + (previous!.y - feet) + '" to="0 0" dur=".45s" fill="freeze"/>')
     const spawned = scene.spawns[actor.id]
     if (motion && spawned !== undefined && scene.now - spawned < 1100) bits.push('<circle cx="0" cy="-12" r="8" fill="none" stroke="#f0c86e" stroke-width="1"><animate attributeName="r" from="3" to="10" dur=".6s" fill="freeze"/><animate attributeName="opacity" from=".85" to="0" dur=".6s" fill="freeze"/></circle>')
-    bits.push('<g data-agent="' + esc(actor.id) + '" data-role="' + role + '" data-state="' + (walking ? 'walking' : busy ? 'working' : 'idle') + '">')
-    if (motion && !busy && !walking) bits.push('<animateTransform attributeName="transform" type="translate" values="0 0;0 -1;0 0" dur="1.2s" repeatCount="indefinite"/>')
-    bits.push(character(role, size, busy, walking, Number(actor.id) || 0, motion, direction), '</g></g>')
-    if (busy && motion) bits.push('<circle cx="' + x + '" cy="' + (feet - size * .53) + '" r="2" fill="#f0c86e"><animate attributeName="opacity" values=".2;1;.2" dur=".9s" begin="' + ((Number(actor.id) % 5) * .1).toFixed(1) + 's" repeatCount="indefinite"/></circle>')
-    if (scene.asking[actor.id] !== undefined) {
+    bits.push('<g data-agent="' + esc(actor.id) + '" data-role="' + role + '" data-state="' + (walking ? 'walking' : action) + '" data-action="' + action + '">')
+    if (motion && !activeMotion && !walking) bits.push('<animateTransform attributeName="transform" type="translate" values="0 0;0 -1;0 0" dur="' + (action === 'thinking' ? '1s' : '1.2s') + '" repeatCount="indefinite"/>')
+    bits.push(character(role, size, activeMotion, walking, Number(actor.id) || 0, motion, walking ? direction : actionDirection), '</g></g>')
+    if (action !== 'idle' && action !== 'waiting') {
+      const badge = Math.max(9, Math.min(12, size * .26))
+      const badgeX = x - badge * .12
+      const badgeY = feet - size * .94
+      const glyph = ACTION_GLYPHS[action]
+      bits.push('<g data-action-marker="' + action + '">')
+      if (motion && actor.activity.isActive) bits.push('<circle cx="' + (badgeX + badge / 2) + '" cy="' + (badgeY + badge / 2) + '" r="' + (badge * .48) + '" fill="none" stroke="#f5d780" stroke-width=".8"><animate attributeName="r" values="' + (badge * .46) + ';' + (badge * .78) + '" dur=".8s" repeatCount="indefinite"/><animate attributeName="opacity" values=".8;0" dur=".8s" repeatCount="indefinite"/></circle>')
+      bits.push('<rect x="' + badgeX + '" y="' + badgeY + '" width="' + badge + '" height="' + badge + '" rx="3" fill="' + (action === 'thinking' ? '#1b3430' : '#24372c') + '" stroke="' + (action === 'thinking' ? '#9cc8a1' : '#efca75') + '" stroke-width=".8"/><text x="' + (badgeX + badge / 2) + '" y="' + (badgeY + badge * .72) + '" text-anchor="middle" font-size="' + Math.max(7, badge * .7) + '" font-weight="700" fill="#ffe6a1">' + glyph + '</text>')
+      if (motion && action === 'thinking') bits.push('<circle cx="' + (badgeX + badge + 2) + '" cy="' + (badgeY + badge - 1) + '" r="1.2" fill="#9cc8a1"><animate attributeName="opacity" values=".25;1;.25" dur="1s" repeatCount="indefinite"/></circle>')
+      bits.push('</g>')
+    }
+    if (waiting) {
       const bubbleY = feet - size - 15
       bits.push('<g transform="translate(' + (x - 6) + ' ' + bubbleY + ')"' + (motion ? '><animateTransform attributeName="transform" type="translate" values="0 0;0 -1;0 0" dur=".8s" repeatCount="indefinite"/>' : '>') + '<rect width="12" height="12" rx="3" fill="#f0d17d" stroke="#533b2b"/><text x="6" y="8.5" text-anchor="middle" font-size="8" font-weight="700" fill="#33271e">?</text></g>')
     }
@@ -249,9 +304,7 @@ export function drawLivingTrail(scene: Scene): { svg: string; width: number; hei
         : current.kind === 'crew' ? (scene.crew ?? []).find(member => String(member.index) === stageActor.id)?.description ?? 'Between file assignments'
           : stageDesk?.name ?? (current.kind === 'folder' ? stageActor.activity.file.split('/').at(-1) : current.title) ?? current.title
   const stageStatus = current.kind === 'inn' ? 'AT CAMP · READY FOR WORK'
-    : scene.asking[stageActor.id] !== undefined ? 'AWAITING YOUR APPROVAL'
-      : stageActor.id !== '0' && running.has(stageActor.id) && !stageActor.activity.isActive ? 'ON ASSIGNMENT'
-        : labelFor(stageActor.activity, false)
+    : labelFor(stageActor.activity, scene.asking[stageActor.id] !== undefined, stageActor.id !== '0' && running.has(stageActor.id), stageActor.id === '0' && scene.isTurn)
   const stageAccent = current.kind === 'folder' ? palette(current.title).accent : current.kind === 'forge' ? '#df9160' : current.kind === 'test' ? '#91bd86' : current.kind === 'library' ? '#c5a2d2' : current.kind === 'terminal' ? '#81c4bd' : current.kind === 'crew' ? '#9bc9a3' : '#e0c782'
   const stageBackground = 'aqbg-' + backgroundFor(current)
   bits.push('<g data-current-location="' + esc(current.key) + '" data-station="' + current.kind + '" aria-label="Current scene: ' + esc(current.title) + '">')
@@ -290,7 +343,7 @@ export function drawLivingTrail(scene: Scene): { svg: string; width: number; hei
     const y = cardsY + row * (cardHeight + rowGap)
     const occupants = at(node)
     const workers = occupants.slice(0, 2)
-    const active = occupants.some(working)
+    const active = occupants.some(assigned)
     const accent = node.kind === 'folder' ? palette(node.title).accent : node.kind === 'forge' ? '#df9160' : node.kind === 'test' ? '#91bd86' : node.kind === 'library' ? '#c5a2d2' : node.kind === 'terminal' ? '#81c4bd' : node.kind === 'crew' ? '#9bc9a3' : '#e0c782'
     const bg = 'aqbg-' + backgroundFor(node)
     const desk = node.room?.desks.find(file => occupants.some(agent => samePath(agent.activity.file, file.path))) ?? node.room?.desks.find(file => file.touch.isActive) ?? node.room?.desks[node.room.desks.length - 1]
@@ -302,7 +355,7 @@ export function drawLivingTrail(scene: Scene): { svg: string; width: number; hei
     const change = (desk?.change?.add ?? desk?.touch.add ?? 0) + (desk?.change?.del ?? desk?.touch.del ?? 0)
     const state = node.kind === 'board'
       ? (occupants.some(member => scene.asking[member.id] !== undefined) ? 'AWAITING APPROVAL' : scene.questStatus === 'blocked' ? 'QUEST PAUSED' : scene.questStatus === 'cancelled' ? 'QUEST CANCELLED' : scene.questStatus === 'replaced' ? 'NEW PATCH' : scene.questStatus === 'completed' ? 'QUEST COMPLETE' : scene.steps.length ? scene.steps.filter(step => step.status === 'completed').length + '/' + scene.steps.length + ' STEPS' : 'READY FOR WORK')
-        : agent ? agent.id !== '0' && running.has(agent.id) && !agent.activity.isActive ? 'ON ASSIGNMENT' : labelFor(agent.activity, scene.asking[agent.id] !== undefined)
+        : agent ? labelFor(agent.activity, scene.asking[agent.id] !== undefined, agent.id !== '0' && running.has(agent.id), agent.id === '0' && scene.isTurn)
         : desk?.touch.isNew ? 'NEW · +' + (desk.change?.add ?? desk.touch.add ?? 0) : desk?.touch.kind === 'read' ? 'LAST READ' : change ? 'PATCH SAVED · +' + change : 'RECENT DISTRICT'
     bits.push('<g data-station="' + node.kind + '" aria-label="' + esc(node.title + ' work station') + '">')
     bits.push('<use href="#' + bg + '" x="' + x + '" y="' + y + '" width="' + cardWidth + '" height="' + cardHeight + '"/>')

@@ -59,8 +59,12 @@ Terminal, a sky forge is implementation, catacombs are tests and an athenaeum
 is documentation. Other project folders choose from the remaining landscapes.
 Dark sign plates keep each station's file and status readable over its scene.
 Claude and the background crew move to the room that matches their real
-activity; Agent Quest sprites walk between places, work at active stations and
-idle at camp. The Trail keeps the current work prominent, while **Focus**
+activity. The character pose and marker follow each live action: editing and
+creating files, reading, searching, running checks or commands, applying
+patches, using tools and planning each have a distinct cue. Walking uses
+directional frames; a running background agent shows a thinking cue between
+tool calls, and pauses for your approval with a bouncing question mark. The
+Trail keeps the current work prominent, while **Focus**
 zooms in on one worker and **Crew** keeps delegated tasks and their last known
 location close at hand. The rooms, labels and characters scale together for
 narrow or wide panes, with **comfortable** and **large** zoom settings. The

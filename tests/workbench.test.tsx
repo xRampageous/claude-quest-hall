@@ -1,4 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
+import { drawLivingTrail } from '../hooks/living-trail'
 
 const PANE = {
   plugin: 'task-board',
@@ -13,7 +14,43 @@ const GIT: Record<string, string> = {
   diff: '3\t1\tsrc/Engine.java\n',
 }
 
-function world($: Parameters<Parameters<typeof test>[1]>[0], on: Parameters<Parameters<typeof test>[1]>[1], options: { mockStore?: boolean } = {}) {
+test('live tool activity gets its own pose, badge and animation', () => {
+  const path = 'src/Engine.java'
+  const room = {
+    key: 'src', name: 'src', slot: 0,
+    desks: [{ path, name: 'Engine.java', touch: { path, agent: 0, isActive: true, edits: 1, kind: 'edit' as const } }],
+  }
+  const render = (activity: { tool: string; mode: 'edit' | 'create' | 'read' | 'search' | 'test' | 'web' | 'apply' | 'shell' | 'tool'; isEdit?: boolean; isNew?: boolean }) => drawLivingTrail({
+    haven: { hero: 'wizard', landmarks: [], motion: true },
+    rooms: [room], activity: { '0': { ...activity, file: path, at: 100, isActive: true, isEdit: activity.isEdit ?? false } },
+    from: {}, now: 100, isTurn: true, width: 54, paneWidth: 434, steps: [], drops: {}, spawns: {},
+    splats: {}, departs: {}, asking: {},
+  }).svg
+  const cases = [
+    { mode: 'edit', tool: 'Edit', isEdit: true, action: 'editing' },
+    { mode: 'create', tool: 'Write', isEdit: true, isNew: true, action: 'creating' },
+    { mode: 'read', tool: 'Read', action: 'reading' },
+    { mode: 'search', tool: '⌕ Engine', action: 'searching' },
+    { mode: 'test', tool: '$ npm test', action: 'testing' },
+    { mode: 'web', tool: 'WebSearch', action: 'researching' },
+    { mode: 'apply', tool: 'MultiEdit', isEdit: true, action: 'applying' },
+    { mode: 'shell', tool: '$ git status', action: 'command' },
+    { mode: 'tool', tool: '⚙ lookup', action: 'tool' },
+  ] as const
+
+  for (const { action, ...activity } of cases) {
+    const svg = render(activity)
+    expect(svg).toContain('data-agent="0"')
+    expect(svg).toContain('data-action="' + action + '"')
+    expect(svg).toContain('data-action-marker="' + action + '"')
+    expect(svg).toContain('<animate')
+  }
+
+  expect(render({ mode: 'edit', tool: 'Edit', isEdit: true })).toContain('aq-mage-attack-0')
+  expect(render({ mode: 'read', tool: 'Read' })).toContain('aq-mage-idle-north')
+})
+
+function world($: Parameters<Parameters<typeof test>[1]>[0], on: Parameters<Parameters<typeof test>[1]>[1], options: { mockStore?: boolean; respondToolCall?: (event: Record<string, unknown>) => unknown | Promise<unknown> } = {}) {
   const clock = mock.clock(on)
   if (options.mockStore !== false) mock.store(on)
   on('command.register', () => ({ value: { command: 'x' } }))
@@ -28,13 +65,48 @@ function world($: Parameters<Parameters<typeof test>[1]>[0], on: Parameters<Para
   on('classic.PermissionDenied', () => ({}))
   on('classic.StopFailure', () => ({}))
   // A commit answers the way git does, so the bank can count its files.
-  on('tool.call', (_, e) => ({
-    result: 'ok',
-    text: String((e as { command?: string }).command ?? '').startsWith('git commit') ? '[main 1a2b3c4] msg\n 2 files changed, 3 insertions(+)' : 'ok',
-  }))
+  on('tool.call', async (_, e) => options.respondToolCall
+    ? options.respondToolCall(e as Record<string, unknown>)
+    : {
+      result: 'ok',
+      text: String((e as { command?: string }).command ?? '').startsWith('git commit') ? '[main 1a2b3c4] msg\n 2 files changed, 3 insertions(+)' : 'ok',
+    })
 
   return clock
 }
+
+test('foreground creation and background-agent tools stay animated until they return', async ($, on) => {
+  let continueTool!: () => void
+  let announceTool!: () => void
+  const gate = new Promise<void>(resolve => { continueTool = resolve })
+  const started = new Promise<void>(resolve => { announceTool = resolve })
+  world($, on, { respondToolCall: async () => { announceTool(); await gate; return { result: 'ok', text: 'ok' } } })
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  on('fs.exists', () => ({ value: false }))
+  on('agent.list', () => ({ value: [{ id: 'review-1', name: 'Reviewer', type: 'reviewer', description: 'Review the patch', status: 'running' }] }))
+  await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
+  await $.prompt.submit({ text: 'create a file and ask for review' } as never)
+
+  const pending = $.tool.call({ tool: 'Write', file_path: 'C:\\proj\\src\\Fresh.java', content: 'class Fresh {}', agentId: 'review-1' } as never)
+  await started
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const svg = String(((await ui.find({ type: 'Svg' })) as unknown as { props: { source: string } }).props.source)
+  expect(svg).toMatch(/data-agent="1" data-role="(?:mage|rogue|ranger|sage)" data-state="creating" data-action="creating"/)
+  expect(svg).toContain('data-action-marker="creating"')
+  await ui.press({ key: 'crew-toggle' })
+  const crewText = (await ui.findAll({ type: 'Text' })).map(item => item.text).join('\n')
+  expect(crewText).toContain('· creating')
+  await ui.unmount()
+
+  continueTool()
+  await pending
+  const completed = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const after = String(((await completed.find({ type: 'Svg' })) as unknown as { props: { source: string } }).props.source)
+  expect(after).toContain('data-action="thinking"')
+  expect(after).toContain('data-action-marker="thinking"')
+  expect(after).toContain('BETWEEN TOOLS')
+  await completed.unmount()
+})
 
 test('the compact patch trail shows files, quests and the Coding level', async ($, on) => {
   const clock = world($, on)
@@ -156,11 +228,11 @@ test('seven background reviewers stay tucked away until the crew roster opens', 
   expect(mapSvg).toContain('data-station="crew"')
   expect(mapSvg).toContain('aria-label="Crew Lodge work station"')
   expect(mapSvg).toContain('Review file 1')
-  expect(mapSvg).toContain('ON ASSIGNMENT')
-  expect(mapSvg).toMatch(/data-role="(?:mage|rogue|ranger|sage)" data-state="working"/)
-  expect(mapSvg).toMatch(/aq-(?:mage|rogue|ranger|sage)-attack-0/)
-  expect(mapSvg).toContain('calcMode="discrete"')
-  expect(mapSvg).toContain('values=".2;1;.2"')
+  expect(mapSvg).toContain('BETWEEN TOOLS')
+  expect(mapSvg).toMatch(/data-role="(?:mage|rogue|ranger|sage)" data-state="thinking" data-action="thinking"/)
+  expect(mapSvg).toMatch(/data-action-marker="thinking"/)
+  expect(mapSvg).toContain('values=".25;1;.25"')
+  expect(mapSvg).not.toMatch(/aq-(?:mage|rogue|ranger|sage)-attack-0/)
   const collapsedButtons = (await ui.findAll({ type: 'Button' })).map(button => String(button.props.label ?? '')).join('\n')
   expect(collapsedButtons).not.toContain('Sonnet 5.5 reviewer 1')
   await ui.press({ key: 'crew-toggle' })
@@ -260,6 +332,22 @@ test('commands run in the Terminal; a refusal splats; the usage limit is out of 
   expect(ran.svg).toContain('data-station="terminal"')
   expect(ran.svg).toContain('$ git status')
   expect(ran.svg).toContain('BETWEEN COMMANDS')
+
+  await $.tool.call({ tool: 'Read', file_path: 'C:\\proj\\src\\Engine.java' })
+  const read = await shown()
+  expect(read.svg).toContain('READ COMPLETE')
+  expect(read.svg).toContain('data-current-location="room:src"')
+
+  await $.tool.call({ tool: 'Grep', pattern: 'Engine', path: 'src' } as never)
+  const searched = await shown()
+  expect(searched.svg).toContain('SEARCH COMPLETE')
+  expect(searched.svg).toContain('data-current-location="terminal"')
+
+  await $.tool.call({ tool: 'mcp__sample__lookup', query: 'patch notes' } as never)
+  const tooled = await shown()
+  expect(tooled.svg).toContain('TOOL COMPLETE')
+  expect(tooled.svg).toContain('⚙ lookup')
+  expect(tooled.svg).toContain('data-current-location="terminal"')
 
   // A refused tool: a red warning splat.
   await $.classic.PermissionDenied({ tool_name: 'Bash', tool_input: {}, tool_use_id: 't1', reason: 'denied' } as never)
