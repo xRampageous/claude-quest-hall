@@ -1,0 +1,588 @@
+{
+  "furniture": {
+    "desk": {
+      "w": 34,
+      "h": 12,
+      "palette": {
+        "o": "#1b1b24",
+        "d": "#513329",
+        "b": "#88512e",
+        "m": "#b4773d",
+        "h": "#d6a65c",
+        "g": "#c69b3c"
+      },
+      "rows": [
+        "...oooooooooooooooooooooooooooo...",
+        ".oohhhhhhhhhhhhhhhhhhhhhhhhhhhhoo.",
+        "oommmmmmmmbmmmmmmmmmmmmbmmbbmmmmoo",
+        "oommbbmmmmbmmmmmmmmmmmmbmmmmmmmmoo",
+        "ohhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhho",
+        "oobbgbbbbbbbbbbbbbbbbbbbbbbbbgbboo",
+        ".ooddddddddddddddddddddddddddddoo.",
+        "..oobooooooooooooooooooooooooboo..",
+        "...omoddddddddddddddddddddddomo...",
+        "...oboooooooooooooooooooooooobo...",
+        "...obo......................obo...",
+        "...ooo......................ooo..."
+      ]
+    },
+    "monitorOff": {
+      "w": 13,
+      "h": 10,
+      "palette": {
+        "o": "#1b1b24",
+        "d": "#354651",
+        "b": "#526a72",
+        "m": "#7b9499",
+        "h": "#b4c8bc",
+        "w": "#735237",
+        "g": "#bd914c"
+      },
+      "rows": [
+        "....ooooo....",
+        "...ohhmbbo...",
+        "..ohhhmbbbo..",
+        "..ommmmbbbo..",
+        "..obbbbbbbo..",
+        "...odddddo...",
+        "....ooooo....",
+        ".....ogo.....",
+        "....owgwo....",
+        "...ooooooo..."
+      ]
+    },
+    "monitorOn": {
+      "w": 13,
+      "h": 10,
+      "palette": {
+        "o": "#1b1b24",
+        "w": "#735237",
+        "g": "#bd914c",
+        "S": "#59baf0"
+      },
+      "rows": [
+        "....ooooo....",
+        "...oSSSSSo...",
+        "..oSSSSSSSo..",
+        "..oSSSSSSSo..",
+        "..oSSSSSSSo..",
+        "...oSSSSSo...",
+        "....ooooo....",
+        ".....ogo.....",
+        "....owgwo....",
+        "...ooooooo..."
+      ]
+    },
+    "plant": {
+      "w": 10,
+      "h": 16,
+      "palette": {
+        "o": "#1b1b24",
+        "m": "#397047",
+        "h": "#6a9b4e",
+        "t": "#653e31",
+        "p": "#a35c3b",
+        "l": "#cf8552"
+      },
+      "rows": [
+        ".....oo...",
+        "....omho..",
+        "....omho..",
+        ".ooo.oo...",
+        "omhhoo.oo.",
+        ".ommomomho",
+        "..ooomomho",
+        "ooo.omoo..",
+        "omhoom.oo.",
+        ".ommooomho",
+        ".oooooooo.",
+        ".ollllllo.",
+        ".oooooooo.",
+        "..olppto..",
+        "..olppto..",
+        "...oooo..."
+      ]
+    },
+    "chair": {
+      "w": 12,
+      "h": 14,
+      "palette": {
+        "o": "#1b1b24",
+        "d": "#513329",
+        "b": "#88512e",
+        "m": "#b4773d",
+        "h": "#d6a65c",
+        "g": "#c69b3c"
+      },
+      "rows": [
+        "..oooooooo..",
+        "..ogmmmmgo..",
+        "..ommmmmmo..",
+        "..obbbbbbo..",
+        "..obooooob..",
+        "..ob....ob..",
+        ".oooooooooo.",
+        "ohhhhhhhhhho",
+        "ommmmmmmmmmo",
+        "oooooooooooo",
+        ".obo....obo.",
+        ".oboddddobo.",
+        ".oboooooobo.",
+        ".ooo....ooo."
+      ]
+    }
+  },
+  "rooms": [
+    {
+      "name": "Bank",
+      "accent": "#d1aa4e",
+      "floorTile": {
+        "w": 10,
+        "h": 10,
+        "palette": {
+          "j": "#55595c",
+          "d": "#73797a",
+          "m": "#929a98",
+          "h": "#b0b7ad"
+        },
+        "rows": [
+          "jjjjjjjjjj",
+          "jhhhhhhhhj",
+          "jmmmmmmmmj",
+          "jmmmmmdmmj",
+          "jddddddddj",
+          "jjjjjjjjjj",
+          "hhhhhjhhhh",
+          "mmdmmjmmmm",
+          "dddddjdddd",
+          "jjjjjjjjjj"
+        ]
+      },
+      "wallStrip": {
+        "w": 20,
+        "h": 18,
+        "palette": {
+          "o": "#1b1b24",
+          "j": "#45454a",
+          "d": "#5c6061",
+          "m": "#777e7b",
+          "h": "#92998f",
+          "b": "#a77543",
+          "g": "#d1aa4e",
+          "l": "#f0ce73",
+          "a": "#8f3934"
+        },
+        "rows": [
+          "jjjjjjjjjjjjjjjjjjjj",
+          "jhhhhhhhhhjhhhhhhhhj",
+          "jmmmmogbbbbbbgommmmj",
+          "jmmmmoooooooooommmmj",
+          "jddddddogllgoddddddj",
+          "jjjjjjjogllgojjjjjjj",
+          "hhhhhjhogllgohhjhhhh",
+          "mmmmmjmogaagommjmmmm",
+          "mmmmmjmolaalommjmmmm",
+          "dddddjdogaagoddjdddd",
+          "jjjjjjjoggggojjjjjjj",
+          "jhhhhhhooggoohhhhhhj",
+          "jmmmmmmmmoommmmmmmmj",
+          "jmmmmmmmmmjmmmmmmmmj",
+          "jdddddddddjddddddddj",
+          "jjjjjjjjjjjjjjjjjjjj",
+          "dddddddddddddddddddd",
+          "oooooooooooooooooooo"
+        ]
+      }
+    },
+    {
+      "name": "Grand Exchange",
+      "accent": "#84a68b",
+      "floorTile": {
+        "w": 10,
+        "h": 10,
+        "palette": {
+          "j": "#55575a",
+          "d": "#5c696b",
+          "m": "#9ba69d",
+          "h": "#c5ccba",
+          "v": "#85938d"
+        },
+        "rows": [
+          "jjjjjjjjjj",
+          "jhhhhjdddj",
+          "jhmhhjdvdj",
+          "jhhmhjdddj",
+          "jhhhhjdddj",
+          "jjjjjjjjjj",
+          "jddddjhhhj",
+          "jdvddjhmhj",
+          "jddddjhhhj",
+          "jjjjjjjjjj"
+        ]
+      },
+      "wallStrip": {
+        "w": 20,
+        "h": 18,
+        "palette": {
+          "o": "#1b1b24",
+          "j": "#45454a",
+          "d": "#5c6061",
+          "m": "#777e7b",
+          "h": "#92998f",
+          "w": "#694832",
+          "b": "#a77543",
+          "g": "#d1aa4e"
+        },
+        "rows": [
+          "jjjjjjjjjjjjjjjjjjjj",
+          "jhhhhhhhhhjhhhhhhhhj",
+          "jmmmoooooooooooommmj",
+          "jmmmowwgwwwwgwwommmj",
+          "jdddowbbbbbbbbwodddj",
+          "jjjjowbhhwhhhbwojjjj",
+          "hhhhowbddwddhbwohhhh",
+          "mmmmowbhhwhhhbwommmm",
+          "mmmmowbddwddhbwommmm",
+          "ddddowbhhwhhhbwodddd",
+          "jjjjowbbbbbbbgwojjjj",
+          "jhhhowwwwwwwwwwohhhj",
+          "jmmmoooooooooooommmj",
+          "jmmmmmmmmmjmmmmmmmmj",
+          "jdddddddddjddddddddj",
+          "jjjjjjjjjjjjjjjjjjjj",
+          "dddddddddddddddddddd",
+          "oooooooooooooooooooo"
+        ]
+      }
+    },
+    {
+      "name": "Wizards' Tower",
+      "accent": "#629fc3",
+      "floorTile": {
+        "w": 10,
+        "h": 10,
+        "palette": {
+          "d": "#25384d",
+          "m": "#304d68",
+          "b": "#416b88",
+          "r": "#629fc3",
+          "g": "#ba9853"
+        },
+        "rows": [
+          "bbbbbbbbbb",
+          "bmdmdmdmbb",
+          "bdmdrdmdbb",
+          "bmdrdrdmbb",
+          "bdrdgdrdbb",
+          "bmdmrmdmbb",
+          "bdmdrdmdbb",
+          "bmdmdmdmbb",
+          "bbbbbbbbbb",
+          "bbbbbbbbbb"
+        ]
+      },
+      "wallStrip": {
+        "w": 20,
+        "h": 18,
+        "palette": {
+          "o": "#1b1b24",
+          "j": "#45454a",
+          "d": "#454e66",
+          "m": "#5d6b82",
+          "h": "#7b8a9b",
+          "w": "#694832",
+          "b": "#a77543",
+          "l": "#f0ce73",
+          "a": "#75c7c0",
+          "c": "#79b4e4",
+          "v": "#476c8c"
+        },
+        "rows": [
+          "jjjjjjjjjjjjjjjjjjjj",
+          "jhhhhhhhhhjhhhhhhhhj",
+          "jmmmmmmmmmjmmmmmmmmj",
+          "jmmmmmmmmmjmmmmmmmmj",
+          "jddddbbddbbddbbddddj",
+          "jjjjjoojjoojjoojjjjj",
+          "hhhholaoolcoolvohhhh",
+          "mmmmoaaooccoovvommmm",
+          "mmmmoaaooccoovvommmm",
+          "ddddoooooooooooodddd",
+          "jjjobbbbbbbbbbbbojjj",
+          "jhhowwwwwwwwwwwwohhj",
+          "jmmoooooooooooooommj",
+          "jmmmmoommmjmmoommmmj",
+          "jdddddddddjddddddddj",
+          "jjjjjjjjjjjjjjjjjjjj",
+          "dddddddddddddddddddd",
+          "oooooooooooooooooooo"
+        ]
+      }
+    },
+    {
+      "name": "Smithy",
+      "accent": "#bd754a",
+      "floorTile": {
+        "w": 10,
+        "h": 10,
+        "palette": {
+          "j": "#30343a",
+          "d": "#42494b",
+          "m": "#56605e",
+          "h": "#69736a"
+        },
+        "rows": [
+          "jjjjjjjjjj",
+          "jhhhhhhhhj",
+          "jmmmmmmmmj",
+          "jmmmmmdmmj",
+          "jddddddddj",
+          "jjjjjjjjjj",
+          "hhhhhjhhhh",
+          "mmdmmjmmmm",
+          "dddddjdddd",
+          "jjjjjjjjjj"
+        ]
+      },
+      "wallStrip": {
+        "w": 20,
+        "h": 18,
+        "palette": {
+          "o": "#1b1b24",
+          "j": "#45454a",
+          "d": "#41464a",
+          "m": "#565d60",
+          "h": "#717b7b",
+          "w": "#694832",
+          "a": "#858d8d",
+          "c": "#a6b0ac"
+        },
+        "rows": [
+          "jjjjjjjjjjjjjjjjjjjj",
+          "jhhhhhhhhhjhhhhhhhhj",
+          "jmmmmmmmmmjmmmmmmmmj",
+          "jmmoooooooooooooommj",
+          "jddowwwwwwwwwwwwoddj",
+          "jjjoooooooooooooojjj",
+          "hhhhhjhhhhhhchcjhhhh",
+          "mmmmmjmmmmmmomojmmmm",
+          "mmooooooommmmcmjmmmm",
+          "ddoccccaodddcdcjdddd",
+          "jjjooaaaojjojjjojjjj",
+          "jhhhhoaohhjhhhhhhhhj",
+          "jmmmoaaaomjmmmmmmmmj",
+          "jmmooooooojmmmmmmmmj",
+          "jdddddddddjddddddddj",
+          "jjjjjjjjjjjjjjjjjjjj",
+          "dddddddddddddddddddd",
+          "oooooooooooooooooooo"
+        ]
+      }
+    },
+    {
+      "name": "Fishing Dock",
+      "accent": "#69a59c",
+      "floorTile": {
+        "w": 10,
+        "h": 10,
+        "palette": {
+          "j": "#3a3530",
+          "d": "#65533d",
+          "m": "#88714d",
+          "h": "#a48e62",
+          "n": "#514630"
+        },
+        "rows": [
+          "jhmmdjhmdj",
+          "jhnmdjhndj",
+          "jhmddjhmdj",
+          "jhmddjhmdj",
+          "jhmmdjhmdj",
+          "jhmmdjhmdj",
+          "jhmmdjhddj",
+          "jhmmdjhddj",
+          "jhmmdjhmdj",
+          "jhmmdjhmdj"
+        ]
+      },
+      "wallStrip": {
+        "w": 20,
+        "h": 18,
+        "palette": {
+          "o": "#1b1b24",
+          "j": "#45454a",
+          "d": "#645846",
+          "m": "#80735b",
+          "h": "#9b8e70",
+          "w": "#694832",
+          "b": "#a77543",
+          "g": "#d1aa4e",
+          "a": "#b6a16d"
+        },
+        "rows": [
+          "jjjjjjjjjjjjjjjjjjjj",
+          "jhhhhhhhhhjhhhhhhhhj",
+          "jmmmobbbbbbbbbbommmj",
+          "jmmmoooooooooooommmj",
+          "jddddgddddjdddgddddj",
+          "jjjjjojajwjajwojjjjj",
+          "hhhhhoahwhahwhojhhhh",
+          "mmmmmomwmamwmaojmmmm",
+          "mmmmmowmamwmamojmmmm",
+          "dddddodadwdadwojdddd",
+          "jjjjjoajwjajwjojjjjj",
+          "jhhhhohwhajwhaohhhhj",
+          "jmmmmmoaoaoaoammmmmj",
+          "jmmmmmmmoaoammmmmmmj",
+          "jdddddddddjddddddddj",
+          "jjjjjjjjjjjjjjjjjjjj",
+          "dddddddddddddddddddd",
+          "oooooooooooooooooooo"
+        ]
+      }
+    },
+    {
+      "name": "Castle Kitchen",
+      "accent": "#ca8052",
+      "floorTile": {
+        "w": 10,
+        "h": 10,
+        "palette": {
+          "j": "#594039",
+          "d": "#8c4934",
+          "m": "#ad6240",
+          "h": "#ca8052"
+        },
+        "rows": [
+          "jjjjjjjjjj",
+          "jhhhhjhhhj",
+          "jmmmmjmmmj",
+          "jmmdmjmmmj",
+          "jddddjdddj",
+          "jjjjjjjjjj",
+          "jhhhhjhhhj",
+          "jmmmmjmdmj",
+          "jddddjdddj",
+          "jjjjjjjjjj"
+        ]
+      },
+      "wallStrip": {
+        "w": 20,
+        "h": 18,
+        "palette": {
+          "o": "#1b1b24",
+          "j": "#45454a",
+          "d": "#685c51",
+          "m": "#857563",
+          "h": "#a18e73",
+          "w": "#694832",
+          "a": "#8f6150",
+          "c": "#b9b6a3"
+        },
+        "rows": [
+          "jjjjjjjjjjjjjjjjjjjj",
+          "jhhhhhhhhhjhhhhhhhhj",
+          "jmmoooooooooooooommj",
+          "jmmowwwwwwwwwwwwommj",
+          "jddooooooooooooooddj",
+          "jjjjjjoojjjjoojjjjjj",
+          "hhhhhjochhhhochjhhhh",
+          "mmmmmjoommmmoomjmmmm",
+          "mmmmoooooooooooommmm",
+          "dddoocaaaoocaaaooddd",
+          "jjjjocaaaoocaaaojjjj",
+          "jhhhoaaaaooaaaaohhhj",
+          "jmmmoooooooooooommmj",
+          "jmmmmmmmmmjmmmmmmmmj",
+          "jdddddddddjddddddddj",
+          "jjjjjjjjjjjjjjjjjjjj",
+          "dddddddddddddddddddd",
+          "oooooooooooooooooooo"
+        ]
+      }
+    }
+  ],
+  "icons": {
+    "stuck": {
+      "w": 9,
+      "h": 9,
+      "palette": {
+        "o": "#1b1b24",
+        "d": "#795b2e",
+        "h": "#f3d474"
+      },
+      "rows": [
+        "..ooooo..",
+        ".odhhhdo.",
+        "odhddhddo",
+        "oddddhddo",
+        "odddhdddo",
+        "odddhdddo",
+        "odddddddo",
+        ".oddhddo.",
+        "..ooooo.."
+      ]
+    },
+    "idle": {
+      "w": 9,
+      "h": 9,
+      "palette": {
+        "o": "#1b1b24",
+        "h": "#f3d474",
+        "m": "#b5c7cc"
+      },
+      "rows": [
+        "hhhhho...",
+        "ooohho...",
+        ".oohho...",
+        "oohho....",
+        "ohhoo.mmo",
+        "hhhhhoomo",
+        "oooooomo.",
+        ".....mmmo",
+        ".....oooo"
+      ]
+    },
+    "coins": {
+      "w": 9,
+      "h": 9,
+      "palette": {
+        "o": "#1b1b24",
+        "d": "#795b2e",
+        "g": "#d8a73f",
+        "h": "#f3d474"
+      },
+      "rows": [
+        ".........",
+        "...oooo..",
+        "..ohhhgo.",
+        "..ogggdo.",
+        "oooogdo..",
+        "ohhgoggo.",
+        "oggdoddo.",
+        ".ooooooo.",
+        "........."
+      ]
+    },
+    "xp": {
+      "w": 9,
+      "h": 9,
+      "palette": {
+        "o": "#1b1b24",
+        "g": "#d8a73f",
+        "h": "#f3d474"
+      },
+      "rows": [
+        "....o....",
+        "...oho...",
+        "...ogo...",
+        ".oogogoo.",
+        "ohgghggho",
+        ".oogogoo.",
+        "...ogo...",
+        "...oho...",
+        "....o...."
+      ]
+    }
+  }
+}

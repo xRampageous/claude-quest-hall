@@ -1,0 +1,5 @@
+{
+  "name": "claude-quest-hall",
+  "owner": { "name": "xRampageous" },
+  "plugins": [{ "name": "task-board", "source": "./" }]
+}

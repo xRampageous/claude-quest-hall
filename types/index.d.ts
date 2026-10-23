@@ -1,0 +1,55 @@
+export type Step = { text: string; status: 'pending' | 'in_progress' | 'completed' }
+// A file an agent worked on this turn: `read` only looked, `edit` changed it.
+// `isNew`: the file did not exist before this turn wrote it.
+// `add` and `del`: lines its edits this turn wrote and replaced, for files git does not count.
+export type Touch = { path: string; agent: number; isActive: boolean; edits: number; kind: 'read' | 'edit'; isNew?: boolean; add?: number; del?: number }
+// What one agent did last: the tool, the file it was on, and when.
+// `mode`: what it is doing besides reading or editing a file: reading the quests
+// (in the Quest Hall), or running tests, searching the web or applying changes (at its desk).
+// `isApply`: a batch of changes applied at once (MultiEdit, git apply, patch).
+export type Activity = { tool: string; file: string; at: number; isActive: boolean; isEdit: boolean; isNew?: boolean; isApply?: boolean; mode?: 'test' | 'web' | 'apply' | 'quests' }
+// A hitsplat over a character: a failed tool's damage, or a test run's pass or fail.
+export type Splat = { kind: 'hit' | 'pass' | 'fail'; damage: number; at: number }
+// One file's git state: Modified, Added, Deleted, Renamed or Untracked.
+export type Change = { code: 'M' | 'A' | 'D' | 'R' | 'U'; add: number; del: number; mtimeMs: number }
+// XP an edit earned, floated up from its desk for a moment.
+export type Drop = { xp: number; at: number }
+// The last commit's files, when, and all files banked this session.
+export type Bank = { files: number; at: number; total: number }
+export type Stats = { edits: number; files: string[]; quests: number; add?: number; del?: number }
+
+declare module 'claude-code' {
+  interface PluginState {
+    'task-board': {
+      steps: Step[]
+      files: Touch[]
+      agents: string[]
+      changes: Record<string, Change>
+      // Keyed by agent index ("0" is Claude).
+      activity: Record<string, Activity>
+      isTurn: boolean
+      // Bumped every few seconds during a turn so idle and waiting agents show.
+      pulse: number
+      // Coding XP across sessions, and the latest drop per file path.
+      xp: number
+      drops: Record<string, Drop>
+      // The level just reached and when, for the banner in the Quest Hall.
+      levelUp: { level: number; at: number } | null
+      // When each subagent first appeared, for its teleport puff.
+      spawns: Record<string, number>
+      bank: Bank | null
+      stats: Stats
+      splats: Record<string, Splat>
+      // When each finished subagent left, for its teleport out.
+      departs: Record<string, number>
+      // When the conversation was last compacted, for the deposit-all puff.
+      compactAt: number | null
+      // When each agent was asked for permission, until its tool goes on.
+      asking: Record<string, number>
+      // Each subagent's job, by its loop id: its type and what it was sent to do.
+      jobs: Record<string, string>
+      // When the current turn began, for the header's timer.
+      turnStart: number
+    }
+  }
+}
