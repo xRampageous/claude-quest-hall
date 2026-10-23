@@ -14,6 +14,7 @@ const AGENT_COLORS = ['#d8a45e', '#67c7c0', '#d98cb2', '#9acb7b', '#d8c56e', '#8
 const esc = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 const clip = (value: string, length: number) => value.length > length ? value.slice(0, Math.max(1, length - 1)) + '…' : value
 const samePath = (a: string, b: string) => a.replace(/\\/g, '/').toLowerCase() === b.replace(/\\/g, '/').toLowerCase()
+const readableScale = (width: number) => Math.max(1.05, Math.min(1.2, width / 360))
 
 function paletteFor(value: string) {
   let hash = 0
@@ -64,30 +65,31 @@ function terrain(width: number, bottom: number): string[] {
 
 function emptyCamp(width: number, hero: number, text: string, hint: string, motion: boolean): string[] {
   const middle = width / 2
-  const hut = middle - 40
+  const hut = middle - 12
+  const scale = readableScale(width)
   return [
-    '<path d="M' + (hut - 12) + ' 87l40-31 40 31v25h-80z" fill="#786047" stroke="#18211f" stroke-width="2"/>',
-    '<path d="M' + (hut - 18) + ' 86L' + (hut + 28) + ' 47L' + (hut + 74) + ' 86h-10L' + (hut + 28) + ' 58l-36 28z" fill="#536a58" stroke="#18211f" stroke-width="2"/>',
-    '<path d="M' + (hut - 5) + ' 91h66v21h-66z" fill="#9b7952"/>',
-    '<rect x="' + (hut + 8) + '" y="91" width="13" height="14" fill="#243635" stroke="#d2b06e"/>',
-    '<rect x="' + (hut + 38) + '" y="91" width="13" height="14" fill="#243635" stroke="#d2b06e"/>',
-    '<path d="M' + (middle + 75) + ' 111q-7-12 0-18 2 8 5 0 8 11 0 18z" fill="#e59a55"/>',
-    '<path d="M' + (middle + 68) + ' 112h20" stroke="#9a6842" stroke-width="3"/>',
-    '<path d="M' + (middle - 83) + ' 112q20-9 42 0m4 0q16-8 34 0" fill="none" stroke="#a8b77c" stroke-width="2" opacity=".7"/>',
-    '<ellipse cx="' + (middle - 93) + '" cy="111" rx="6" ry="1.6" fill="#111a18" opacity=".65"/>',
+    '<path d="M' + (hut - 53) + ' 91l53-40 53 40v38h-106z" fill="#786047" stroke="#18211f" stroke-width="2"/>',
+    '<path d="M' + (hut - 61) + ' 90L' + (hut) + ' 42L' + (hut + 61) + ' 90h-12L' + (hut) + ' 53l-50 37z" fill="#536a58" stroke="#18211f" stroke-width="2"/>',
+    '<path d="M' + (hut - 45) + ' 96h90v32h-90z" fill="#9b7952"/>',
+    '<rect x="' + (hut - 35) + '" y="99" width="17" height="18" fill="#243635" stroke="#d2b06e"/>',
+    '<rect x="' + (hut + 18) + '" y="99" width="17" height="18" fill="#243635" stroke="#d2b06e"/>',
+    '<path d="M' + (middle + 75) + ' 130q-9-15 0-24 2 9 6 0 9 13 0 24z" fill="#e59a55"/>',
+    '<path d="M' + (middle + 67) + ' 131h22" stroke="#9a6842" stroke-width="3"/>',
+    '<path d="M' + (middle - 83) + ' 130q20-10 42 0m4 0q16-9 34 0" fill="none" stroke="#a8b77c" stroke-width="2" opacity=".7"/>',
+    '<ellipse cx="' + (middle - 93) + '" cy="129" rx="7" ry="2" fill="#111a18" opacity=".65"/>',
     motion
-      ? '<g><animateTransform attributeName="transform" type="translate" values="0 0;0 -1;0 0" dur="1.2s" repeatCount="indefinite"/>' + character(hero, middle - 93, 112, 31) + '</g>'
-      : character(hero, middle - 93, 112, 31),
-    '<text x="18" y="42" font-size="7" fill="#b6c3aa" letter-spacing="1.2">PATCH CAMP</text>',
-    '<text x="' + (middle + 8) + '" y="81" font-size="7" fill="#f0ce82">PATCHHAVEN</text>',
-    '<text x="' + middle + '" y="129" text-anchor="middle" font-size="8" fill="#d8dfcf">' + esc(text) + '</text>',
-    '<text x="' + middle + '" y="140" text-anchor="middle" font-size="6.5" fill="#9aada0">' + esc(hint) + '</text>',
+      ? '<g><animateTransform attributeName="transform" type="translate" values="0 0;0 -1;0 0" dur="1.2s" repeatCount="indefinite"/>' + character(hero, middle - 93, 131, 39 * scale) + '</g>'
+      : character(hero, middle - 93, 131, 39 * scale),
+    '<text x="18" y="42" font-size="' + (9 * scale) + '" fill="#b6c3aa" letter-spacing="1.2">PATCH CAMP</text>',
+    '<text x="' + hut + '" y="87" text-anchor="middle" font-size="' + (9 * scale) + '" fill="#f0ce82">PATCHHAVEN</text>',
+    '<text x="' + middle + '" y="151" text-anchor="middle" font-size="' + (12 * scale) + '" fill="#d8dfcf">' + esc(text) + '</text>',
+    '<text x="' + middle + '" y="166" text-anchor="middle" font-size="' + (9.5 * scale) + '" fill="#b3c1b4">' + esc(hint) + '</text>',
   ]
 }
 
-function building(node: AtlasNode, x: number, y: number, w: number, h: number, accent: string, active: boolean): string[] {
+function building(node: AtlasNode, x: number, y: number, w: number, h: number, accent: string, active: boolean, scale: number): string[] {
   const bottom = y + h - 3
-  const wallX = x + 8
+  const wallX = x + 5
   const wallY = y + 13
   const awning = active ? '#f0c86e' : accent
   const common = [
@@ -96,35 +98,41 @@ function building(node: AtlasNode, x: number, y: number, w: number, h: number, a
   ]
   if (node.kind === 'terminal') {
     common.push(
-      '<rect x="' + wallX + '" y="' + wallY + '" width="25" height="17" fill="#655242" stroke="#17211f" stroke-width="1.5"/>',
-      '<path d="M' + (wallX - 3) + ' ' + (wallY + 2) + 'l15-10 16 10z" fill="#526a58" stroke="#17211f"/>',
-      '<rect x="' + (wallX + 4) + '" y="' + (wallY + 4) + '" width="16" height="8" fill="#183239" stroke="' + accent + '"/>',
-      '<path d="M' + (wallX + 7) + ' ' + (wallY + 7) + 'l3 2-3 2m5 0h4" fill="none" stroke="#b7d8bd" stroke-width=".8"/>',
-      '<path d="M' + (wallX + 11) + ' ' + (wallY + 17) + 'v3" stroke="#d5b678" stroke-width="2"/>',
+      '<rect x="' + wallX + '" y="' + wallY + '" width="34" height="22" fill="#655242" stroke="#17211f" stroke-width="1.5"/>',
+      '<path d="M' + (wallX - 3) + ' ' + (wallY + 2) + 'l20-13 20 13z" fill="#526a58" stroke="#17211f"/>',
+      '<rect x="' + (wallX + 5) + '" y="' + (wallY + 5) + '" width="23" height="11" fill="#183239" stroke="' + accent + '"/>',
+      '<path d="M' + (wallX + 9) + ' ' + (wallY + 8) + 'l4 3-4 3m8 0h6" fill="none" stroke="#b7d8bd" stroke-width="1"/>',
+      '<path d="M' + (wallX + 16) + ' ' + (wallY + 22) + 'v4" stroke="#d5b678" stroke-width="2"/>',
     )
   } else if (node.kind === 'board') {
     common.push(
-      '<path d="M' + (wallX + 4) + ' ' + (wallY + 22) + 'v-22h19v22" fill="#755b3e" stroke="#17211f" stroke-width="1.5"/>',
-      '<path d="M' + (wallX - 1) + ' ' + (wallY + 2) + 'l14-11 15 11z" fill="#516d58" stroke="#17211f"/>',
-      '<rect x="' + (wallX + 7) + '" y="' + (wallY + 4) + '" width="12" height="11" fill="#d4c28e" stroke="#433a2d"/>',
-      '<path d="M' + (wallX + 9) + ' ' + (wallY + 7) + 'h8m-8 3h6" stroke="#59624e" stroke-width="1"/>',
-      '<rect x="' + (wallX + 10) + '" y="' + (wallY + 15) + '" width="7" height="5" fill="#453b31"/>',
+      '<path d="M' + (wallX + 3) + ' ' + (wallY + 25) + 'v-25h29v25" fill="#755b3e" stroke="#17211f" stroke-width="1.5"/>',
+      '<path d="M' + (wallX - 3) + ' ' + (wallY + 2) + 'l17-13 18 13z" fill="#516d58" stroke="#17211f"/>',
+      '<rect x="' + (wallX + 9) + '" y="' + (wallY + 5) + '" width="18" height="13" fill="#d4c28e" stroke="#433a2d"/>',
+      '<path d="M' + (wallX + 12) + ' ' + (wallY + 9) + 'h12m-12 4h9" stroke="#59624e" stroke-width="1.2"/>',
+      '<rect x="' + (wallX + 13) + '" y="' + (wallY + 18) + '" width="10" height="7" fill="#453b31"/>',
     )
   } else {
     common.push(
-      '<rect x="' + wallX + '" y="' + wallY + '" width="29" height="18" fill="#756047" stroke="#17211f" stroke-width="1.5"/>',
-      '<path d="M' + (wallX - 4) + ' ' + (wallY + 2) + 'l18-13 19 13z" fill="#526a58" stroke="#17211f"/>',
-      '<path d="M' + (wallX + 3) + ' ' + (wallY + 3) + 'h8v7h-8z" fill="#355a58" stroke="#d4bd7a"/>',
-      '<rect x="' + (wallX + 18) + '" y="' + (wallY + 9) + '" width="7" height="9" fill="#352c27" stroke="#a98755"/>',
-      '<path d="M' + (wallX + 21) + ' ' + (wallY + 13) + 'h1" stroke="#efc972"/>',
+      '<rect x="' + wallX + '" y="' + wallY + '" width="36" height="23" fill="#756047" stroke="#17211f" stroke-width="1.5"/>',
+      '<path d="M' + (wallX - 4) + ' ' + (wallY + 2) + 'l21-14 23 14z" fill="#526a58" stroke="#17211f"/>',
+      '<path d="M' + (wallX + 4) + ' ' + (wallY + 4) + 'h11v11h-11z" fill="#355a58" stroke="#d4bd7a"/>',
+      '<rect x="' + (wallX + 23) + '" y="' + (wallY + 11) + '" width="9" height="12" fill="#352c27" stroke="#a98755"/>',
+      '<path d="M' + (wallX + 27) + ' ' + (wallY + 16) + 'h1" stroke="#efc972"/>',
     )
   }
   common.push('<path d="M' + (x + 4) + ' ' + (y + 11) + 'h' + (w - 8) + '" stroke="' + awning + '" stroke-width="1" opacity=".8"/>')
-  return common
+  const floor = common.splice(0, 2)
+  const centerX = x + 23
+  return [
+    ...floor,
+    '<g transform="translate(' + (centerX * (1 - scale)) + ' ' + (bottom * (1 - scale)) + ') scale(' + scale + ')">' + common.join('') + '</g>',
+  ]
 }
 
 export function drawAtlas(scene: Scene): { svg: string; width: number; height: number; spots: Record<string, { x: number; y: number }> } {
   const width = Math.max(300, Math.min(560, scene.paneWidth || scene.width * 1.5))
+  const scale = readableScale(width)
   const hero = Math.max(0, HEROES.indexOf(scene.haven?.hero ?? 'wizard'))
   const background = new Set(scene.backgroundAgents ?? [])
   const actors: { id: string; activity: Activity }[] = Object.entries(scene.activity)
@@ -149,14 +157,18 @@ export function drawAtlas(scene: Scene): { svg: string; width: number; height: n
   const gapX = 8
   const padX = 9
   const cardW = (width - padX * 2 - gapX) / columns
+  const rows = Math.ceil(nodes.length / columns)
+  const footerY = 190
+  const cardHeight = 48
+  const rowPitch = 53
+  const fieldTop = 29
+  const rowStart = fieldTop + Math.max(0, (footerY - fieldTop - cardHeight - (rows - 1) * rowPitch) / 2)
   const positions = nodes.map((node, index) => {
     const row = Math.floor(index / columns)
     const col = row % 2 === 0 ? index % columns : columns - 1 - (index % columns)
-    return { x: padX + col * (cardW + gapX), y: 29 + row * 40, w: cardW, h: 37 }
+    return { x: padX + col * (cardW + gapX), y: rowStart + row * rowPitch, w: cardW, h: cardHeight }
   })
   const spots: Record<string, { x: number; y: number }> = {}
-  const rows = Math.ceil(nodes.length / columns)
-  const footerY = nodes.length ? 30 + rows * 40 - 1 : 145
   const height = footerY + 19
   const bits: string[] = [
     '<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Patchhaven patch trail" width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '" font-family="ui-monospace,Menlo,Consolas,monospace" shape-rendering="crispEdges">',
@@ -164,14 +176,14 @@ export function drawAtlas(scene: Scene): { svg: string; width: number; height: n
     '<rect width="' + width + '" height="' + height + '" fill="#111d1f"/>',
     '<rect id="floor" x="1" y="1" width="' + (width - 2) + '" height="' + (height - 2) + '" fill="#172426" stroke="#43594e"/>',
     '<path d="M2 23h' + (width - 4) + '" stroke="#43594e"/>',
-    '<text x="10" y="16" font-size="8" font-weight="700" letter-spacing="1" fill="#e0c782">PATCH TRAIL</text>',
+    '<text x="10" y="16" font-size="' + (10.5 * scale) + '" font-weight="700" letter-spacing="1" fill="#e0c782">PATCH TRAIL</text>',
   ]
   const status = scene.failure
     ? scene.failure.error === 'rate_limit' ? 'NO RUN ENERGY' : 'TURN PAUSED'
     : scene.stoppedAt !== undefined && scene.now - scene.stoppedAt < 60_000 ? 'STOPPED'
       : scene.compactAt !== undefined && scene.now - scene.compactAt < 5000 ? 'PACKING TRAIL'
         : scene.isTurn ? 'IN THE FIELD' : background.size ? 'CREW ACTIVE' : 'AT CAMP'
-  bits.push('<text x="' + (width - 10) + '" y="16" font-size="6.5" text-anchor="end" letter-spacing=".5" fill="' + (scene.failure ? '#e89a87' : '#9bc9a3') + '">' + status + '</text>')
+  bits.push('<text x="' + (width - 10) + '" y="16" font-size="' + (8.5 * scale) + '" text-anchor="end" letter-spacing=".5" fill="' + (scene.failure ? '#e89a87' : '#9bc9a3') + '">' + status + '</text>')
   for (let mark = 0; mark < 6; mark++) {
     const color = mark < (scene.haven?.landmarks.length ?? 0) ? '#e6c679' : '#46564c'
     const x = 104 + mark * 7
@@ -180,7 +192,7 @@ export function drawAtlas(scene: Scene): { svg: string; width: number; height: n
   bits.push(...terrain(width, footerY - 2))
 
   if (scene.levelUp && scene.now - scene.levelUp.at < 6000) {
-    bits.push('<text x="' + (width / 2) + '" y="25" text-anchor="middle" font-size="7" font-weight="700" fill="#f1cc72">LEVEL UP · ' + scene.levelUp.level + '</text>')
+    bits.push('<text x="' + (width / 2) + '" y="25" text-anchor="middle" font-size="' + (9.5 * scale) + '" font-weight="700" fill="#f1cc72">LEVEL UP · ' + scene.levelUp.level + '</text>')
   }
 
   if (!nodes.length) {
@@ -202,7 +214,7 @@ export function drawAtlas(scene: Scene): { svg: string; width: number; height: n
       })
       const active = agents.length > 0
       const accent = node.kind === 'folder' ? paletteFor(node.title).accent : node.kind === 'board' ? '#e0c782' : '#81c4bd'
-      const structure = building(node, x, y, w, h, accent, active)
+      const structure = building(node, x, y, w, h, accent, active, scale)
       bits.push('<g>' + structure.join('') + '</g>')
       if (active) {
         bits.push('<path d="M' + (x + 4) + ' ' + (y + 10) + 'h4m-4 2v5m' + (w - 8) + ' -7h4v7" fill="none" stroke="#f0c86e" stroke-width="1"/>')
@@ -226,15 +238,19 @@ export function drawAtlas(scene: Scene): { svg: string; width: number; height: n
             : [desk?.touch.isNew ? 'NEW' : code ?? (desk?.touch.kind === 'read' ? 'READ' : ''), add ? '+' + add : '', del ? '−' + del : ''].filter(Boolean).join(' · ') || (active ? actorLabel(agents[0]!.activity) : 'FILE DISTRICT')
       const signX = x + 47
       const available = w - 75
-      const titleChars = Math.max(7, Math.floor(available / 4.2))
-      const fileChars = Math.max(8, Math.floor(available / 5.3))
+      const titleFontSize = 8 * scale
+      const fileFontSize = Math.max(10, Math.min(11.5 * scale, available / (Math.max(1, fileName.length) * .58)))
+      const statusFontSize = Math.max(7.5, Math.min(8.5 * scale, available / (Math.max(1, statusText.length) * .58)))
+      const titleChars = Math.max(5, Math.floor(available / (titleFontSize * .58 + .45)))
+      const fileChars = Math.max(5, Math.floor(available / (fileFontSize * .58)))
+      const statusChars = Math.max(5, Math.floor(available / (statusFontSize * .58)))
       bits.push(
-        '<path d="M' + (signX - 3) + ' ' + (y + 5) + 'h' + (available + 4) + 'v27h-' + (available + 4) + 'z" fill="#1e302d" stroke="#111b1d" stroke-width="1"/>',
-        '<path d="M' + (signX - 1) + ' ' + (y + 7) + 'h' + (available) + 'v23h-' + available + 'z" fill="#273b35" stroke="' + (active ? '#dfc17a' : '#60745e') + '" stroke-width=".8"/>',
-        '<path d="M' + (signX + 2) + ' ' + (y + 9) + 'h' + Math.max(8, available - 6) + '" stroke="' + accent + '" stroke-width="1" opacity=".8"/>',
-        '<text x="' + (signX + 3) + '" y="' + (y + 15) + '" font-size="6.1" letter-spacing=".45" fill="' + accent + '">' + esc(clip(node.title.toUpperCase(), titleChars)) + '</text>',
-        '<text x="' + (signX + 3) + '" y="' + (y + 24) + '" font-size="7.5" fill="#f0efdc">' + esc(clip(fileName, fileChars)) + '</text>',
-        '<text x="' + (signX + 3) + '" y="' + (y + 30) + '" font-size="5.6" fill="' + (active ? '#f0c86e' : '#a9b7a5') + '">' + esc(clip(statusText, titleChars + 1)) + '</text>',
+        '<path d="M' + (signX - 3) + ' ' + (y + 4) + 'h' + (available + 4) + 'v41h-' + (available + 4) + 'z" fill="#1e302d" stroke="#111b1d" stroke-width="1"/>',
+        '<path d="M' + (signX - 1) + ' ' + (y + 6) + 'h' + (available) + 'v37h-' + available + 'z" fill="#273b35" stroke="' + (active ? '#dfc17a' : '#60745e') + '" stroke-width=".8"/>',
+        '<path d="M' + (signX + 2) + ' ' + (y + 8) + 'h' + Math.max(8, available - 6) + '" stroke="' + accent + '" stroke-width="1" opacity=".8"/>',
+        '<text x="' + (signX + 3) + '" y="' + (y + 17) + '" font-size="' + (8 * scale) + '" letter-spacing=".45" fill="' + accent + '">' + esc(clip(node.title.toUpperCase(), titleChars)) + '</text>',
+        '<text x="' + (signX + 3) + '" y="' + (y + 31) + '" font-size="' + fileFontSize + '" fill="#f0efdc">' + esc(clip(fileName, fileChars)) + '</text>',
+        '<text x="' + (signX + 3) + '" y="' + (y + 43) + '" font-size="' + statusFontSize + '" fill="' + (active ? '#f0c86e' : '#a9b7a5') + '">' + esc(clip(statusText, statusChars)) + '</text>',
       )
       agents.slice(0, 3).forEach((actor, actorNumber) => {
         const px = x + w - 9 - actorNumber * 13
@@ -252,7 +268,7 @@ export function drawAtlas(scene: Scene): { svg: string; width: number; height: n
         if (spawned !== undefined && scene.now - spawned < 1100) {
           bits.push('<circle cx="0" cy="-10" r="8" fill="none" stroke="#f0c86e" stroke-width="1"><animate attributeName="r" from="3" to="9" dur=".55s" fill="freeze"/><animate attributeName="opacity" from=".8" to="0" dur=".55s" fill="freeze"/></circle>')
         }
-        bits.push('<g>' + (scene.haven?.motion === false ? '' : '<animateTransform attributeName="transform" type="translate" values="0 0;0 -1;0 0" dur="1.2s" repeatCount="indefinite"/>') + character(actorIndex(actor.id, hero), 0, 0, 22) + '</g></g>')
+        bits.push('<g>' + (scene.haven?.motion === false ? '' : '<animateTransform attributeName="transform" type="translate" values="0 0;0 -1;0 0" dur="1.2s" repeatCount="indefinite"/>') + character(actorIndex(actor.id, hero), 0, 0, 28 * scale) + '</g></g>')
         bits.push('<rect x="' + (px - 3) + '" y="' + (y + 2) + '" width="5" height="2" fill="' + AGENT_COLORS[Number(actor.id) % AGENT_COLORS.length] + '"/>')
       })
       if (!agents.length) bits.push('<circle cx="' + (x + w - 10) + '" cy="' + (y + 6) + '" r="1.6" fill="#65766a"/>')
@@ -261,10 +277,10 @@ export function drawAtlas(scene: Scene): { svg: string; width: number; height: n
       if (splat && scene.now - splat.at < 3000) {
         const label = splat.kind === 'pass' ? '✓' : splat.kind === 'denied' ? '✋' : splat.kind === 'hit' ? String(splat.damage) : '×'
         bits.push('<rect x="' + (x + w - 27) + '" y="' + (y + 3) + '" width="9" height="9" fill="' + (splat.kind === 'pass' ? '#2f8f2f' : '#b43d3d') + '" stroke="#0b1315"/>')
-        bits.push('<text x="' + (x + w - 22.5) + '" y="' + (y + 10) + '" text-anchor="middle" font-size="6" font-weight="700" fill="#fff">' + label + '</text>')
+        bits.push('<text x="' + (x + w - 22.5) + '" y="' + (y + 11) + '" text-anchor="middle" font-size="' + (8 * scale) + '" font-weight="700" fill="#fff">' + label + '</text>')
       }
       const drop = desk ? scene.drops[desk.path] : undefined
-      if (drop && scene.now - drop.at < 2500) bits.push('<text x="' + (x + w - 8) + '" y="' + (y - 1) + '" text-anchor="middle" font-size="5.5" font-weight="700" fill="#f2c768">+' + drop.xp + '</text>')
+      if (drop && scene.now - drop.at < 2500) bits.push('<text x="' + (x + w - 8) + '" y="' + (y - 1) + '" text-anchor="middle" font-size="' + (7.5 * scale) + '" font-weight="700" fill="#f2c768">+' + drop.xp + '</text>')
     })
   }
 
@@ -274,15 +290,15 @@ export function drawAtlas(scene: Scene): { svg: string; width: number; height: n
   bits.push('<path d="M7 ' + footerY + 'h' + (width - 14) + 'v14H7z" fill="#202e2c" stroke="#526457"/>')
   if (scene.steps.length) {
     const note = activeStep?.text ? ' · ' + activeStep.text : ' · all patches complete'
-    bits.push('<text x="13" y="' + (footerY + 9.5) + '" font-size="6" letter-spacing=".2" fill="#e6c679">BOARD ' + completed + '/' + scene.steps.length + '</text>')
-    bits.push('<text x="84" y="' + (footerY + 9.5) + '" font-size="5.8" fill="' + (activeStep ? '#c5d2c3' : '#83c997') + '">' + esc(clip(note, Math.floor((width - 98) / 3.7))) + '</text>')
+    bits.push('<text x="13" y="' + (footerY + 11) + '" font-size="' + (8 * scale) + '" letter-spacing=".2" fill="#e6c679">BOARD ' + completed + '/' + scene.steps.length + '</text>')
+    bits.push('<text x="84" y="' + (footerY + 11) + '" font-size="' + (7.5 * scale) + '" fill="' + (activeStep ? '#c5d2c3' : '#83c997') + '">' + esc(clip(note, Math.floor((width - 98) / (4.5 * scale)))) + '</text>')
   } else {
-    bits.push('<text x="13" y="' + (footerY + 9.5) + '" font-size="6.2" fill="#c0cbb8">' + nodes.length + ' ' + (nodes.length === 1 ? 'DISTRICT' : 'DISTRICTS') + '  ·  ' + crewCount + ' CREW  ·  ' + (scene.haven?.landmarks.length ?? 0) + '/6 MARKS</text>')
-    if (scene.bank?.total) bits.push('<text x="' + (width - 13) + '" y="' + (footerY + 9.5) + '" text-anchor="end" font-size="5.8" fill="#e6c679">' + scene.bank.total + ' BANKED</text>')
+    bits.push('<text x="13" y="' + (footerY + 11) + '" font-size="' + (7.5 * scale) + '" fill="#c0cbb8">' + nodes.length + ' ' + (nodes.length === 1 ? 'DISTRICT' : 'DISTRICTS') + '  ·  ' + crewCount + ' CREW  ·  ' + (scene.haven?.landmarks.length ?? 0) + '/6 MARKS</text>')
+    if (scene.bank?.total) bits.push('<text x="' + (width - 13) + '" y="' + (footerY + 11) + '" text-anchor="end" font-size="' + (7.5 * scale) + '" fill="#e6c679">' + scene.bank.total + ' BANKED</text>')
   }
   if (scene.failure) {
     bits.push('<rect x="' + (width - 113) + '" y="26" width="101" height="12" fill="#3d2221" stroke="#d87865"/>')
-    bits.push('<text x="' + (width - 62.5) + '" y="34.5" text-anchor="middle" font-size="5.8" fill="#f0b2a3">' +
+    bits.push('<text x="' + (width - 62.5) + '" y="35" text-anchor="middle" font-size="' + (8 * scale) + '" fill="#f0b2a3">' +
       (scene.failure.error === 'rate_limit' ? 'OUT OF RUN ENERGY' : 'TURN PAUSED') + '</text>')
   }
   bits.push('</svg>')

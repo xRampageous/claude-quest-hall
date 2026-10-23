@@ -54,7 +54,10 @@ test('the compact patch trail shows files, quests and the Coding level', async (
   expect(svg).toContain('aria-label="Patchhaven patch trail"')
   expect(svg).toContain('0/1 WORK ORDERS')
   expect(svg).toContain('stroke-dasharray="1 4"')
-  expect(Number(/viewBox="0 0 [\d.]+ ([\d.]+)/.exec(svg)?.[1])).toBeLessThan(100)
+  const spriteHeights = [...svg.matchAll(/<svg x="[^"]+" y="[^"]+" width="[\d.]+" height="([\d.]+)"/g)].map(match => Number(match[1]))
+  expect(spriteHeights.length).toBeGreaterThan(0)
+  expect(Math.min(...spriteHeights)).toBeGreaterThanOrEqual(29)
+  expect(Number(/viewBox="0 0 [\d.]+ ([\d.]+)/.exec(svg)?.[1])).toBeGreaterThanOrEqual(200)
   expect(svg).toContain('id="floor')
   expect(svg).not.toContain('Guild Hall')
   // The quest is on Patchhaven's board, in the scene.
@@ -237,6 +240,10 @@ test('between turns, Claude waits at the patch camp', async ($, on) => {
   expect(svg).toContain('AT CAMP')
   expect(svg).toContain('Waiting at camp')
   expect(svg).toContain('Open a file and the trail will form.')
+  expect(Number(/viewBox="0 0 [\d.]+ ([\d.]+)/.exec(svg)?.[1])).toBeGreaterThanOrEqual(200)
+  expect(Number(/font-size="([\d.]+)" fill="#d8dfcf"/.exec(svg)?.[1])).toBeGreaterThanOrEqual(10)
+  const heroHeight = Number(/<svg x="[^"]+" y="[^"]+" width="[\d.]+" height="([\d.]+)"/.exec(svg)?.[1])
+  expect(heroHeight).toBeGreaterThanOrEqual(40)
   await ui.unmount()
 })
 
@@ -255,14 +262,16 @@ test('every surface shows the quests: on the Patchboard, or as text in a termina
   }
 })
 
-test('the patch labels stay compact at pane width', async ($, on) => {
+test('the patch labels stay readable in narrow and wide panes', async ($, on) => {
   world($, on)
   await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
   await $.tool.call({ tool: 'mcp__ccd_turn__update_plan', items: [{ content: 'Ship the rooms', status: 'pending' }] } as never)
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  const scene = (await ui.find({ type: 'Svg' })) as unknown as { props: { source: string; width: number } }
-  const viewBox = Number(/viewBox="0 0 ([\d.]+)/.exec(scene.props.source)?.[1])
-  const size = Number(/font-size="([\d.]+)" fill="#f0efdc"/.exec(scene.props.source)?.[1])
-  expect(Math.round(size * (scene.props.width / viewBox))).toBe(8)
-  await ui.unmount()
+  for (const bodyColumns of [38, 54]) {
+    const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns }, surface: 'desktop' })
+    const scene = (await ui.find({ type: 'Svg' })) as unknown as { props: { source: string; width: number } }
+    const viewBox = Number(/viewBox="0 0 ([\d.]+)/.exec(scene.props.source)?.[1])
+    const size = Number(/font-size="([\d.]+)" fill="#f0efdc"/.exec(scene.props.source)?.[1])
+    expect(size * (scene.props.width / viewBox)).toBeGreaterThanOrEqual(10)
+    await ui.unmount()
+  }
 })

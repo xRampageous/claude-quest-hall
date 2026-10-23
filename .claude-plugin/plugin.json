@@ -1,6 +1,6 @@
 {
   "name": "task-board",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Patchhaven: a compact pixel-art trail through live files, quests and background agents. Open it with /haven or /board.",
   "author": {
     "name": "xRampageous"
