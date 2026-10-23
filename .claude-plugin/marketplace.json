@@ -1,5 +1,6 @@
 {
   "name": "claude-quest-hall",
+  "description": "The Workbench: an OSRS-style world showing Claude's coding activity, quests and agents.",
   "owner": { "name": "xRampageous" },
   "plugins": [{ "name": "task-board", "source": "./" }]
 }
