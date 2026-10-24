@@ -1,131 +1,178 @@
-# Workbench
+# Patchhaven
 
-A little OSRS-style world beside the chat that shows what Claude is doing, live.
-Claude is a wizard; each subagent is a knight, ranger or smith. Every folder
-being worked on is a room, every file a desk.
+Patchhaven turns a Claude Code session into a living pixel-art work map. Claude
+and the agent crew move between stations based on real file activity. Skills
+and landmarks track the work you do together, with a compact OSRS-inspired feel
+and a world shaped by your project.
 
-Open it with `/board`.
+![Patchhaven preview: the HUD with XP drops, skill orbs and haul above Claude striking a bug in src while the crew tests, waits for approval and writes](assets/patch-trail-preview.svg)
 
-## Install
+Open Patchhaven with `/haven`. `/board` remains an alias.
 
-At the prompt of a terminal session:
+## Install or update
 
-```
-/plugin install task-board --marketplace xRampageous/claude-quest-hall
-```
-
-Answer `y` to add the marketplace, then pick a scope (the user scope loads it
-in every session).
-
-From a shell:
+For a fresh install from a terminal:
 
 ```bash
-claude plugin install task-board --marketplace xRampageous/claude-quest-hall
+npx --yes @anthropic-ai/claude-code@2.1.309 plugin install task-board --marketplace xRampageous/patchhaven --scope user
 ```
 
-In the desktop app, where `/plugin` does not run: click + next to the prompt
-box, then Plugins, Add marketplace with `xRampageous/claude-quest-hall`, then
-Add plugin.
+To test the current Patchhaven v2 branch before it reaches the default branch:
 
-The repository is public, so the marketplace install works without a GitHub
-credential. The repository does not currently include a software license;
-public visibility alone does not grant permission to reuse or redistribute the
-code.
+```powershell
+cd "C:\path\to\your\project"
+npx --yes @anthropic-ai/claude-code@2.1.309 plugin install task-board --marketplace xRampageous/patchhaven#feat/patchhaven-v2 --scope project
+```
 
-To update an installed copy from a terminal:
+After a new commit is pushed to that branch, update the project install:
+
+```powershell
+npx --yes @anthropic-ai/claude-code@2.1.309 plugin update task-board@claude-quest-hall --scope project
+```
+
+Then run `/reload-plugins` and reopen the pane with `/haven`.
+
+The marketplace keeps the `claude-quest-hall` ID for existing installs. In
+Claude Desktop, click **+** beside the prompt box, choose **Plugins**, add the
+marketplace `xRampageous/patchhaven`, then install `task-board`.
+
+The repository currently has no software license. Public visibility alone does
+not grant permission to reuse or redistribute the code.
+
+If you already installed the old Quest Hall plugin, update that same install:
 
 ```bash
-npx --yes @anthropic-ai/claude-code plugin update task-board@claude-quest-hall --scope user
+npx --yes @anthropic-ai/claude-code@2.1.309 plugin update task-board@claude-quest-hall --scope user
 ```
 
-## What you see
+The old marketplace name and `task-board` plugin ID stay in place so existing
+installs can update through GitHub's repository redirect. The public project
+and in-app name are Patchhaven. Coding XP carries over. The new skill ledger
+starts earning XP from activity after this version is installed.
 
-**The header card**
-- **⚒ Coding level** with an XP bar. Every edit earns XP on the classic level
-  curve, and your total carries over between sessions.
-- **This session:** edits, files, quests finished, and files banked by commits.
-- **⏱ timer** while Claude is working on a turn.
-- **Where everyone is:** each character, its job if it is a subagent, and the
-  folder trail of the file it is on.
+## The living map
 
-**The Quest Hall**
-- The quest board: Claude's steps in quest colors. Red is not started, yellow
-  is in progress, green is done. A finished quest becomes "Quest complete!".
-- The chest: commits bank their files here, with flying coins.
-- Characters come here to read the quests.
+The **HUD** is a pixel panel above the map: your hero's Agent Quest portrait,
+name, title and settlement; a Coding bar with its level and the XP still to
+earn; four skill orbs whose rings fill toward the next level; and the visit's
+**haul**, inventory slots counting edits, files, passed checks, quests, banked
+files, crew and any bugs still loose. Each XP gain floats up beside the bar
+with its skill's icon, and the skill that earned it glows. Every number comes
+from recorded work; nothing is estimated.
 
-**The rooms**
-- Each folder in play is a themed room: Bank, Grand Exchange, Wizards' Tower,
-  Smithy, Fishing Dock or Castle Kitchen. A folder always gets the same theme.
-- Each file is a desk, with its git status (M, A, U, D, R) and line counts.
-- **The Terminal:** shell commands, file searches and outside tools are run at
-  a glowing rune console, in a room that appears once something is run.
-- **The Forge:** files created this turn are made here, with anvil sparks and
-  a NEW tag.
-- **The Inn:** between turns the wizard waits by the fire, and dozes off after
-  two minutes.
+The **Patch Trail** below shows the current place as a stage: a caption band
+names the place, the file or task and what is happening, and the current worker
+stands on the floor at a small work prop. Nearby stations follow in order of
+attention. Each station has its own Agent Quest room: the Patchboard is the
+guild hall, the Crew Lodge a round hall, camp an open field with a campfire,
+the Terminal a glitch pit, the Forge a sky forge, tests the catacombs and docs
+an athenaeum. Project folders draw from the remaining landscapes, so a folder
+never borrows a station's room.
 
-## What the characters do
+Characters react only to observed events:
 
-| You see | It means |
-|---|---|
-| Typing at a desk, crystal ball glowing | Editing that file |
-| Reading a book, purple glow | Reading that file |
-| ✚ bubble, sparks, desk rising | Creating a new file |
-| "…" thought bubble | Thinking between steps |
-| 📜 at the quest board | Reading or updating the quests |
-| ⚔ at a training dummy, then ✓ or ✗ | Running tests: passed or failed |
-| ⌕ with a map scroll | Searching the web |
-| ✦ rune circle | Applying a batch of changes |
-| Typing at the Terminal's rune console | Running a command, a search, or an outside tool |
-| Red hitsplat with a number | A tool failed |
-| Grey ✋ splat | You refused a tool |
-| ⚡ Out of run energy, wizard slumped | The usage limit was reached |
-| Grey "The turn stopped" banner | The turn failed (server busy, an error) |
-| "stopped" at the Inn | You stopped the turn |
-| Bouncing under a ? | Waiting for you to approve something |
-| Zz drifting up | Idle |
-| Blue and violet sparks | A subagent arriving, or leaving when done |
-| Gold +XP and a hop | An edit landed |
-| LEVEL UP! banner | You levelled up |
-| Coins into the chest | A commit |
-| Deposit-all puff | The conversation was compacted |
+| Signal | On the map |
+| --- | --- |
+| Edit, Write (new file), MultiEdit or a patch command | Strikes at a page, a glowing new page, or a rune circle |
+| Read | Faces an open book |
+| Grep, Glob, LSP | Sweeps a lens across a book, in the Terminal |
+| A test command | Strikes a training dummy; a pass or fail splat lands |
+| Shell command | Works a console with a blinking prompt, in the Terminal |
+| Web search or fetch, browser tools | Turns a globe |
+| Other tools, skills and MCP tools | Turns a gear, in the Terminal |
+| Task, Agent, SendMessage | Sends a sealed order from the Crew Lodge |
+| A plan update | Faces the work-order board |
+| The model thinking, or writing its reply | Thought dots, or a scroll being written, between tools |
+| A permission prompt or question for you | Faces you under a bouncing `?` |
+| A failed tool | A damage splat and a brief flinch |
+| A failing check | A bug appears where the check ran, one pip per failing test reported |
+| A later passing check | The bug is squashed |
+| A subagent starting or finishing | It teleports in or fades out |
+
+Thinking and replying come from the model's streamed response, for Claude and
+each subagent. Background agents keep their last place and show what the model
+is doing between their tool calls. Walking plays all nine directional Agent
+Quest frames, facing the way the worker moves, and a worker who changes rooms
+walks into the new scene. Hands-on work plays the nine-frame attack strip with
+a short rest between strokes. The **Motion** setting stops every animation:
+the map, the HUD and each roster portrait.
+
+**Trail**, **Focus** and **Log** move between the project, a selected worker's
+activity and the visit journal. The **Crew** panel stays collapsed while agents
+work, with a count of active and tracked agents. Open it to see a compact
+roster of every known task with each worker's animated portrait, state,
+location, last activity and task. The layout adjusts to narrow panes, and
+**comfortable** and **large** zoom the HUD and the complete map. In a terminal,
+which has no pictures, Patchhaven lists who is where and doing what, any bugs
+loose, the crew and the quests as text.
+
+## Three stages of progress
+
+Real work earns persistent skill XP for **Crafting** (edits), **Research**
+(distinct file reads and web research), **Verification** (successful checks) and
+**Teamwork** (completed plans, commits and crew). Skills use the classic OSRS
+level curve. Repeating the same activity earns less XP, and each skill has a
+per-visit cap. Earned levels unlock wearable titles and relics shown on your
+hero and in the Skills ledger.
+
+Plans follow a readable quest lifecycle: active steps can complete, be replaced,
+cancelled or pause when work is blocked. The Log records those outcomes beside
+file activity, checks, commits, crew and XP. At the end of a visit, Patchhaven
+keeps a short field report with touched files, successful and failed checks,
+completed quests, crew activity, XP and newly earned landmarks. It stores
+activity metadata, not prompts, tool arguments or source text. Detailed visit
+history is bounded; earned progress remains.
+
+The **More** view includes scale modes, motion and chime settings, diagnostics,
+and token-free sample scenes for edits, crew activity, approvals, failures and
+completed visits. A sample scene only changes what is displayed. Use **Return
+live** to go back to your project.
+
+Choose a wizard, knight, ranger or smith as your hero, give them a name and
+equip any title you have earned. The rest of the crew rotates through the other
+appearances.
 
 ## Commands
 
-- `/board`: open the Workbench.
-- `/board stats` (or `/board recap`): show this session's XP, edits, files,
-  completed quests, line counts and files banked by commits.
-- `/board help` (or `/board ?`): list the commands and settings.
-- `/board sound`: turn chimes on or off (off at first). One chime when Claude
-  needs your permission, another when a turn ends.
-- `/board plan`: show Claude's step list under each message again, or move it
-  back to the Workbench.
+- `/haven` opens Patchhaven. `/board` is an alias.
+- `/haven world`, `/haven focus`, `/haven journal`, `/haven skills` and
+  `/haven settings` select a view.
+- `/haven stats` (or `/haven recap`) shows this visit's progress.
+- `/haven size auto|comfortable|large` sets map scale.
+- `/haven demo idle|edit|crew|approval|failure|bug|complete` previews a sample scene;
+  `/haven demo off` returns to live activity.
+- `/haven hero wizard|knight|ranger|smith` changes your hero; `/haven name
+  <name>` sets the name.
+- `/haven title <earned title>` equips a reward; `/haven title` lists rewards.
+- `/haven replay` plays the selected journal visit; `/haven live` returns to the
+  current scene.
+- `/haven motion` toggles animation; `/haven sound` toggles chimes.
+- `/haven plan` toggles whether Claude's step list appears in Patchhaven or
+  under each message.
+- `/haven help` lists commands. Every command also works under `/board`.
 
 ## Development
 
-From the repository root, use a Claude Code version that supports mod tests:
+With Claude Code 2.1.309 or later, run the plugin checks from the repository
+root:
 
 ```bash
-claude plugin test
-claude plugin validate . --strict
-```
-
-The tests run without a Claude session, sign-in or network access. They cover
-quest completion, failed and refused plan updates, XP storage failures, the
-rendered scene, terminal fallback and drawing size with a large working tree.
-
-If an older installed CLI does not recognize `plugin test`, the version used
-to verify this release can be run without replacing it:
-
-```bash
+npx --yes tsx tools/render-preview.ts
 npx --yes @anthropic-ai/claude-code@2.1.309 plugin test
 npx --yes @anthropic-ai/claude-code@2.1.309 plugin validate . --strict
 ```
 
+Pass a pane width, and optionally a zoom, to the preview renderer to inspect
+other layouts, for example `npx --yes tsx tools/render-preview.ts 304` or
+`npx --yes tsx tools/render-preview.ts 560 large`.
+
+In Claude Desktop, open a project, use `/haven`, start work that reads and edits
+files, then try a delegated background task. The **Crew** panel and the sample
+scenes in **More** show how those activities appear on the map.
+
 ## Art
 
-All the art is original, made for this mod: the characters were generated
-from pixel-art prompts and cleaned up to an exact grid; the rooms and
-furniture were drawn as pixel grids (`assets/workbench-art.json`); the chimes
-are synthesized bell tones.
+Agent Quest's MIT-licensed room backgrounds, first-tier character sprites and
+two monster animations (the bugs) are bundled with their license notice in
+`assets/agent-quest/`. Patchhaven's HUD, work props, icons, map, interface and
+animations are original. The small chimes are synthesized bell tones.

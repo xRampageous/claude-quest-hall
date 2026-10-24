@@ -1,5 +1,17 @@
 import { expect, mock, test } from 'claude-code/testing'
 
+type Drawing = { findAll(query: { type: string }): Promise<readonly { text?: string; props: Record<string, unknown> }[]> }
+// The living map, told from the HUD by its own label.
+async function sceneOf(ui: Drawing) {
+  return (await ui.findAll({ type: 'Svg' })).find(item => String(item.props.source).includes('Patchhaven live work trail'))!
+}
+// Everything the pane says in words: its texts and each picture's alt text.
+async function textsOf(ui: Drawing) {
+  const texts = (await ui.findAll({ type: 'Text' })).map(item => item.text ?? '')
+  const alts = (await ui.findAll({ type: 'Svg' })).map(item => String(item.props.alt ?? ''))
+  return [...texts, ...alts].join('\n')
+}
+
 type On = Parameters<Parameters<typeof test>[1]>[1]
 
 const PANE = {
@@ -45,7 +57,7 @@ test('owned plans announce each completed step and count a finished quest once',
   expect(calls).toEqual(['mcp__ccd_turn__wrap_up'])
 
   const ui = await $.ui.mount(PANE)
-  expect((await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')).toContain('1 quest')
+  expect(await textsOf(ui as never)).toContain('1 quest')
   await ui.unmount()
 })
 
@@ -82,7 +94,7 @@ test('failed and denied native plan updates leave the board and quest count unch
     outcome = failed
     await $.tool.call({ tool, items: [{ content: 'Build', status: 'completed' }] } as never)
     const ui = await $.ui.mount(PANE)
-    const text = (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')
+    const text = await textsOf(ui as never)
     expect(text).toContain('Quests 0/1')
     expect(text).toContain('0 quests')
     await ui.unmount()
@@ -108,7 +120,7 @@ test('TodoWrite and wrap_up count only successful quest completions', async ($, 
   await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'Ship', status: 'completed' }] } as never)
   expect(toasts).toEqual(['Congratulations, quest complete! (1 step)', 'Congratulations, quest complete! (1 step)'])
   const ui = await $.ui.mount(PANE)
-  expect((await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')).toContain('2 quests')
+  expect(await textsOf(ui as never)).toContain('2 quests')
   await ui.unmount()
 })
 

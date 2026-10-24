@@ -1,5 +1,17 @@
 import { expect, mock, test } from 'claude-code/testing'
 
+type Drawing = { findAll(query: { type: string }): Promise<readonly { text?: string; props: Record<string, unknown> }[]> }
+// The living map, told from the HUD by its own label.
+async function sceneOf(ui: Drawing) {
+  return (await ui.findAll({ type: 'Svg' })).find(item => String(item.props.source).includes('Patchhaven live work trail'))!
+}
+// Everything the pane says in words: its texts and each picture's alt text.
+async function textsOf(ui: Drawing) {
+  const texts = (await ui.findAll({ type: 'Text' })).map(item => item.text ?? '')
+  const alts = (await ui.findAll({ type: 'Svg' })).map(item => String(item.props.alt ?? ''))
+  return [...texts, ...alts].join('\n')
+}
+
 const PANE = {
   plugin: 'task-board',
   component: 'Pane',
@@ -36,8 +48,17 @@ test('draws with a big real-looking state', async ($, on) => {
 
   for (const surface of ['desktop', 'terminal'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
-    expect(texts.length).toBeGreaterThan(5)
+    // The desktop says its facts in pictures with alt text; the terminal in lines of text.
+    const words = await textsOf(ui as never)
+    expect(words.split('\n').filter(Boolean).length).toBeGreaterThan(surface === 'desktop' ? 1 : 5)
+    expect(words).toContain('40 edits')
+    if (surface === 'desktop') {
+      const scene = await sceneOf(ui as never)
+      const svg = String((scene as unknown as { props: { source: string } }).props.source)
+      const height = Number(/viewBox="0 0 [\d.]+ ([\d.]+)/.exec(svg)?.[1])
+      expect(svg).toContain('PATCH TRAIL')
+      expect(height).toBeLessThanOrEqual(360)
+    }
     // Well under what the app accepts for one drawing.
     expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
     await ui.unmount()

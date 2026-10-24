@@ -1,6 +1,6 @@
-# Art tools
+# Patchhaven art tools
 
-How the Workbench's art was made, so characters and scenery can be added or
+How Patchhaven's art was made, so characters and scenery can be added or
 changed later. All need Python 3 with Pillow (`pip install pillow`).
 
 ## A new character
@@ -36,10 +36,37 @@ Every sprite becomes compact SVG paths in `hooks/art.ts`:
 python tools/gen_art.py .
 ```
 
+The marketplace icon is drawn at 64 pixels and scaled up with nearest-neighbor
+filtering:
+
+```bash
+python tools/gen_icon.py
+```
+
 ## Scenery
 
-Rooms, furniture and icons are pixel grids in `assets/workbench-art.json`.
-Check it and render a preview sheet with:
+Furniture and icons are pixel grids in `assets/workbench-art.json`. Room
+palettes live there; the renderer draws their walls and floors as larger,
+low-contrast SVG patterns so repeated tiles stay subtle.
+
+The live Patch Trail also uses curated Agent Quest rooms, sprites and two
+monsters. The source art and its MIT license notice are in `assets/agent-quest/`.
+The generator packs each nine-frame animation (walks, the attack and the
+monsters' idle) into one horizontal strip, which the map steps through inside a
+clipped 56×56 window; a scene must stay under the `Svg` element's 131,072
+character source limit. To regenerate the 256×82 palette-limited background
+copies and embedded TypeScript data modules, run:
+
+```bash
+python tools/compact_agentquest_backgrounds.py
+python tools/generate_agentquest_art.py
+```
+
+Regenerate the HUD and living map example with
+`npx --yes tsx tools/render-preview.ts`. Pass a pane width, such as `304`, and
+optionally `comfortable` or `large`, to inspect other layouts. The renderer
+updates the SVG preview under `assets/`.
+Check the sprite grids and render a preview sheet with:
 
 ```bash
 python tools/check_art.py assets/workbench-art.json preview.png
