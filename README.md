@@ -5,7 +5,7 @@ and the agent crew move between stations based on real file activity. Skills
 and landmarks track the work you do together, with a compact OSRS-inspired feel
 and a world shaped by your project.
 
-![Patchhaven preview showing the shared guild hall and active workstations](assets/patch-trail-preview.svg)
+![Patchhaven preview: the HUD with XP drops, skill orbs and haul above Claude striking a bug in src while the crew tests, waits for approval and writes](assets/patch-trail-preview.svg)
 
 Open Patchhaven with `/haven`. `/board` remains an alias.
 
@@ -52,32 +52,59 @@ starts earning XP from activity after this version is installed.
 
 ## The living map
 
-The **Patch Trail** follows Claude in a panoramic Agent Quest scene for the
-current activity, then shows a short trail of nearby stations in order of
-attention. The guild hall is camp and the Patchboard; a glitch pit is the
-Terminal, a sky forge is implementation, catacombs are tests and an athenaeum
-is documentation. Other project folders choose from the remaining landscapes.
-Dark sign plates keep each station's file and status readable over its scene.
-Claude and the background crew move to the room that matches their real
-activity. The character pose and marker follow each live action: editing and
-creating files, reading, searching, running checks or commands, applying
-patches, using tools and planning each have a distinct cue. Walking uses
-directional frames; a running background agent shows a thinking cue between
-tool calls, and pauses for your approval with a bouncing question mark. The
-Trail keeps the current work prominent, while **Focus**
-zooms in on one worker and **Crew** keeps delegated tasks and their last known
-location close at hand. The rooms, labels and characters scale together for
-narrow or wide panes, with **comfortable** and **large** zoom settings. The
-Motion setting pauses all animations.
+The **HUD** is a pixel panel above the map: your hero's Agent Quest portrait,
+name, title and settlement; a Coding bar with its level and the XP still to
+earn; four skill orbs whose rings fill toward the next level; and the visit's
+**haul**, inventory slots counting edits, files, passed checks, quests, banked
+files, crew and any bugs still loose. Each XP gain floats up beside the bar
+with its skill's icon, and the skill that earned it glows. Every number comes
+from recorded work; nothing is estimated.
 
-The HUD keeps your hero, Coding level, XP, edits, files and quest progress beside
-the map. **Trail**, **Focus** and **Log** move between the project, a selected
-worker's activity and the visit journal. The **Crew** panel stays collapsed
-while agents work, with a count of active and tracked agents. Open it to see a
-compact roster of every known task, including reviewers that have not reached
-a file yet, with each worker's state, location, last activity and task.
-The floor plan adjusts to narrow panes, and **comfortable** and **large** scale
-settings zoom the complete map, including its room art, labels and characters.
+The **Patch Trail** below shows the current place as a stage: a caption band
+names the place, the file or task and what is happening, and the current worker
+stands on the floor at a small work prop. Nearby stations follow in order of
+attention. Each station has its own Agent Quest room: the Patchboard is the
+guild hall, the Crew Lodge a round hall, camp an open field with a campfire,
+the Terminal a glitch pit, the Forge a sky forge, tests the catacombs and docs
+an athenaeum. Project folders draw from the remaining landscapes, so a folder
+never borrows a station's room.
+
+Characters react only to observed events:
+
+| Signal | On the map |
+| --- | --- |
+| Edit, Write (new file), MultiEdit or a patch command | Strikes at a page, a glowing new page, or a rune circle |
+| Read | Faces an open book |
+| Grep, Glob, LSP | Sweeps a lens across a book, in the Terminal |
+| A test command | Strikes a training dummy; a pass or fail splat lands |
+| Shell command | Works a console with a blinking prompt, in the Terminal |
+| Web search or fetch, browser tools | Turns a globe |
+| Other tools, skills and MCP tools | Turns a gear, in the Terminal |
+| Task, Agent, SendMessage | Sends a sealed order from the Crew Lodge |
+| A plan update | Faces the work-order board |
+| The model thinking, or writing its reply | Thought dots, or a scroll being written, between tools |
+| A permission prompt or question for you | Faces you under a bouncing `?` |
+| A failed tool | A damage splat and a brief flinch |
+| A failing check | A bug appears where the check ran, one pip per failing test reported |
+| A later passing check | The bug is squashed |
+| A subagent starting or finishing | It teleports in or fades out |
+
+Thinking and replying come from the model's streamed response, for Claude and
+each subagent. Background agents keep their last place and show what the model
+is doing between their tool calls. Walking plays all nine directional Agent
+Quest frames, facing the way the worker moves, and a worker who changes rooms
+walks into the new scene. Hands-on work plays the nine-frame attack strip with
+a short rest between strokes. The **Motion** setting stops every animation:
+the map, the HUD and each roster portrait.
+
+**Trail**, **Focus** and **Log** move between the project, a selected worker's
+activity and the visit journal. The **Crew** panel stays collapsed while agents
+work, with a count of active and tracked agents. Open it to see a compact
+roster of every known task with each worker's animated portrait, state,
+location, last activity and task. The layout adjusts to narrow panes, and
+**comfortable** and **large** zoom the HUD and the complete map. In a terminal,
+which has no pictures, Patchhaven lists who is where and doing what, any bugs
+loose, the crew and the quests as text.
 
 ## Three stages of progress
 
@@ -112,7 +139,7 @@ appearances.
   `/haven settings` select a view.
 - `/haven stats` (or `/haven recap`) shows this visit's progress.
 - `/haven size auto|comfortable|large` sets map scale.
-- `/haven demo idle|edit|crew|approval|failure|complete` previews a sample scene;
+- `/haven demo idle|edit|crew|approval|failure|bug|complete` previews a sample scene;
   `/haven demo off` returns to live activity.
 - `/haven hero wizard|knight|ranger|smith` changes your hero; `/haven name
   <name>` sets the name.
@@ -135,8 +162,9 @@ npx --yes @anthropic-ai/claude-code@2.1.309 plugin test
 npx --yes @anthropic-ai/claude-code@2.1.309 plugin validate . --strict
 ```
 
-Pass a pane width to the preview renderer to inspect the single-column layout,
-for example `npx --yes tsx tools/render-preview.ts 304`.
+Pass a pane width, and optionally a zoom, to the preview renderer to inspect
+other layouts, for example `npx --yes tsx tools/render-preview.ts 304` or
+`npx --yes tsx tools/render-preview.ts 560 large`.
 
 In Claude Desktop, open a project, use `/haven`, start work that reads and edits
 files, then try a delegated background task. The **Crew** panel and the sample
@@ -144,7 +172,7 @@ scenes in **More** show how those activities appear on the map.
 
 ## Art
 
-Agent Quest's MIT-licensed room backgrounds and first-tier character sprites
-are bundled with their license notice in `assets/agent-quest/`. Patchhaven's
-station signs, map, interface and animations are original. The small chimes are
-synthesized bell tones.
+Agent Quest's MIT-licensed room backgrounds, first-tier character sprites and
+two monster animations (the bugs) are bundled with their license notice in
+`assets/agent-quest/`. Patchhaven's HUD, work props, icons, map, interface and
+animations are original. The small chimes are synthesized bell tones.

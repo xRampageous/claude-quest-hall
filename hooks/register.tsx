@@ -1,24 +1,25 @@
 import { atom, read, update } from 'claude-code'
 import type { Register, EngineInterface, RenderInput } from 'claude-code'
 
-import type { Activity, CrewAgent, Failure, Step, Touch } from '../types'
+import type { Activity, CrewAgent, Failure, Mob, Step, Touch } from '../types'
 import { readChanges } from './git'
 import { drawRooms, roomsOf } from './rooms'
-import type { Room } from './rooms'
-import { ACTION_GLYPHS, activityAction } from './living-trail'
+import type { Room, Spot } from './rooms'
+import { actionIcon, activityAction, labelFor, roleFor } from './living-trail'
 import type { ActorAction } from './living-trail'
-import { AGENT_QUEST_SPRITES } from './agentquest-sprites'
-import { absoluteFile, earnedRewards, eventText, HEROES, HERO_COLORS, LANDMARKS, recapText, relativeFile, replayFrame, REWARDS, settlementOf, skillLevel, SKILLS } from './haven'
+import { AGENT_QUEST_FRAME, AGENT_QUEST_FRAMES, AGENT_QUEST_SPRITES } from './agentquest-sprites'
+import { drawHud } from './hud'
+import type { HudDrop } from './hud'
+import { absoluteFile, earnedRewards, eventText, HEROES, LANDMARKS, recapText, relativeFile, replayFrame, REWARDS, settlementOf, skillLevel, SKILLS } from './haven'
 import type { HavenSize, HavenView, VisitRecap } from './haven'
 import { advanceReplay, initHaven, recordHaven, saveRecap, setProfile } from './haven-state'
 
 const PANE = 'task-board'
-const PATCHHAVEN_VERSION = '2.2.6'
-const AGENT_QUEST_ROLES = ['mage', 'rogue', 'ranger', 'sage'] as const
+const PATCHHAVEN_VERSION = '2.3.0'
 const CREW_ACTION_LABELS: Record<ActorAction, string> = {
   editing: 'editing', creating: 'creating', reading: 'reading', searching: 'searching', testing: 'checking',
   researching: 'researching', applying: 'applying', command: 'command', tool: 'using tool', delegating: 'delegating',
-  planning: 'planning', thinking: 'between tools', waiting: 'approval', working: 'working', idle: 'idle',
+  planning: 'planning', thinking: 'thinking', replying: 'writing reply', waiting: 'approval', working: 'working', idle: 'idle',
 }
 // Whether Patchhaven takes over the app's own task list under each message.
 const OWN_PLAN_KEY = 'ownPlan'
@@ -75,19 +76,26 @@ const isTurn = atom({ plugin: 'task-board', key: 'isTurn' } as const, false)
 const pulse = atom({ plugin: 'task-board', key: 'pulse' } as const, 0)
 type QuestState = { signature: string; status: 'idle' | 'active' | 'completed' | 'cancelled' | 'replaced' | 'blocked' }
 const questState = atom({ plugin: 'task-board', key: 'questState' } as const, { signature: '', status: 'idle' } as QuestState)
-type DemoMode = 'idle' | 'edit' | 'crew' | 'approval' | 'failure' | 'complete'
-const DEMO_MODES: readonly DemoMode[] = ['idle', 'edit', 'crew', 'approval', 'failure', 'complete']
+type DemoMode = 'idle' | 'edit' | 'crew' | 'approval' | 'failure' | 'bug' | 'complete'
+const DEMO_MODES: readonly DemoMode[] = ['idle', 'edit', 'crew', 'approval', 'failure', 'bug', 'complete']
 const demoMode = atom({ plugin: 'task-board', key: 'demoMode' } as const, null as DemoMode | null)
 const selectedCrew = atom({ plugin: 'task-board', key: 'selectedCrew' } as const, '0')
+const mobs = atom({ plugin: 'task-board', key: 'mobs' } as const, [] as Mob[])
 const turnSnapshot = atom({ plugin: 'task-board', key: 'turnSnapshot' } as const, null as { seq: number; landmarks: string[]; edits: number; quests: number; crew: number; xp: number } | null)
 
 // Where each agent stood at the last drawing, so a move can be walked.
-let lastSpots: Record<string, { x: number; y: number }> = {}
+let lastSpots: Record<string, Spot> = {}
 let lastSceneKey = ''
 // Agents already toasted as stuck, by agent and kind, until they act again.
 const warned = new Set<string>()
 // Set by a new prompt: the last turn's scene stays up until this turn first touches a file.
 let isFresh = false
+// The model's phase per loop as its response streams, so only a change is written.
+const phases = new Map<string, Activity['mode']>()
+// Tools that put a question to you rather than doing work.
+const QUESTIONS = new Set(['AskUserQuestion', 'ExitPlanMode'])
+// Outside tools that browse or fetch the web count as research.
+const BROWSING = /(?:browser|chrome|navigate|fetch|web_?search|get_page|read_page)/i
 
 const EDITORS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 // Who each character is, in the cast's order (Claude, then subagents in turn).
@@ -315,6 +323,23 @@ async function hit($: EngineInterface, agent: number, text: string) {
   await update($, splats, s => ({ ...s, [agent]: { kind: 'hit', damage, at: Date.now() } }))
 }
 
+// A failing check lets a bug loose where it ran, one pip per failing test it
+// reports (up to five); a later passing check squashes every bug still loose.
+async function trackBugs($: EngineInterface, failed: boolean, file: string, agent: number, text: string) {
+  const now = Date.now()
+  if (failed) {
+    const reported = Number(/\b(\d+) (?:failed|failing|failures?)\b/i.exec(text)?.[1] ?? 0)
+    const hp = Math.max(1, Math.min(5, reported || 1))
+    await update($, mobs, list => {
+      const loose = list.find(mob => mob.defeatedAt === undefined && mob.file === file)
+      if (loose) return list.map(mob => mob === loose ? { ...mob, hp: reported ? hp : mob.hp, at: now, agent } : mob)
+      return [...list.filter(mob => mob.defeatedAt === undefined).slice(-3), { id: `bug-${now}`, file, agent, hp, at: now }]
+    })
+  } else {
+    await update($, mobs, list => list.some(mob => mob.defeatedAt === undefined) ? list.map(mob => mob.defeatedAt === undefined ? { ...mob, defeatedAt: now } : mob) : list)
+  }
+}
+
 // Marks a file worked on by the loop that ran the tool, until `next` returns.
 async function track<T>($: EngineInterface, tool: string, path: string, loopId: string, kind: Touch['kind'], isNew: boolean, run: () => Promise<T>): Promise<T> {
   if (isFresh) {
@@ -377,7 +402,7 @@ async function runHavenCommand($: EngineInterface, args: string) {
     '/haven stats (or recap) — this session’s progress.',
     '/haven settings — size, motion, sound, demo and diagnostics.',
     '/haven size auto | comfortable | large — choose map scale.',
-    '/haven demo idle | edit | crew | approval | failure | complete | off — token-free preview.',
+    '/haven demo idle | edit | crew | approval | failure | bug | complete | off — token-free preview.',
     '/haven title — equip an earned title.',
     '/haven hero wizard | knight | ranger | smith — choose your appearance.',
     '/haven name <name> — name your hero (24 characters).',
@@ -479,18 +504,19 @@ function demoFixture(mode: DemoMode, now: number) {
     { key: '#forge', name: 'Forge', slot: 0, desks: [{ path: paths[3]!, name: 'FreshPatch.java', touch: touch(paths[3]!, 'edit', true), change: { code: 'A', add: 12, del: 0, mtimeMs: now } }] },
   ]
   const many = ['crew', 'approval', 'failure'].includes(mode)
+  const bugs: Mob[] = mode === 'bug' ? [{ id: 'demo-bug', file: paths[0]!, agent: 0, hp: 3, at: now }] : []
   const crew: CrewAgent[] = many
     ? Array.from({ length: 7 }, (_, index) => ({ id: `demo-review-${index + 1}`, index: index + 1, name: `Sonnet reviewer ${index + 1}`, type: 'reviewer', description: `Review ${paths[index % paths.length]}`, status: 'running' }))
     : mode === 'complete' ? [{ id: 'demo-review-1', index: 1, name: 'Sonnet reviewer', type: 'reviewer', description: 'Finished checking the patch', status: 'completed' }] : []
   const location = (index: number) => mode === 'approval' && index === 1 ? '#terminal' : ['#crew', '#terminal', paths[0]!, paths[1]!, paths[2]!, paths[3]!, paths[0]!][index - 1] ?? '#crew'
-  const activity: Record<string, Activity> = { 0: { tool: mode === 'edit' ? 'Edit' : '', file: mode === 'idle' || mode === 'complete' ? '#inn' : mode === 'failure' ? '#terminal' : paths[0]!, at: now, isActive: mode === 'edit' || mode === 'approval' || mode === 'failure', isEdit: mode === 'edit' } }
+  const activity: Record<string, Activity> = { 0: { tool: mode === 'edit' || mode === 'bug' ? 'Edit' : '', file: mode === 'idle' || mode === 'complete' ? '#inn' : mode === 'failure' ? '#terminal' : paths[0]!, at: now, isActive: mode === 'edit' || mode === 'bug' || mode === 'approval' || mode === 'failure', isEdit: mode === 'edit' || mode === 'bug', mode: mode === 'edit' || mode === 'bug' ? 'edit' : undefined } }
   for (const member of crew) activity[String(member.index)] = { tool: 'Review', file: location(member.index), at: now - member.index * 8000, isActive: many, isEdit: false, mode: member.index === 2 ? 'test' : member.index === 3 ? 'web' : 'background' }
   const steps: Step[] = mode === 'idle' ? [] : mode === 'complete'
     ? [{ text: 'Map the work', status: 'completed' }, { text: 'Check the patch', status: 'completed' }, { text: 'Share the result', status: 'completed' }]
     : [{ text: 'Map the work', status: 'completed' }, { text: 'Check the patch', status: 'in_progress' }, { text: 'Share the result', status: 'pending' }]
-  const askingState = mode === 'approval' ? { '1': now } : {}
+  const askingState: Record<string, number> = mode === 'approval' ? { '1': now } : {}
   const failureState: Failure | undefined = mode === 'failure' ? { error: 'server_error', at: now } : undefined
-  return { rooms: mode === 'idle' ? [] : rooms, crew, activity, steps, asking: askingState, failure: failureState, questStatus: mode === 'complete' ? 'completed' : mode === 'failure' ? 'blocked' : mode === 'idle' ? 'idle' : 'active' }
+  return { rooms: mode === 'idle' ? [] : rooms, crew, activity, steps, asking: askingState, failure: failureState, mobs: bugs, questStatus: mode === 'complete' ? 'completed' : mode === 'failure' ? 'blocked' : mode === 'idle' ? 'idle' : 'active' }
 }
 
 export const register: Register = on => {
@@ -571,9 +597,12 @@ export const register: Register = on => {
       const command = String(input.command ?? '')
       const isShell = e.tool === 'Bash' || e.tool === 'PowerShell'
       const isOutside = e.tool.startsWith('mcp__')
-      const isSearch = e.tool === 'Grep' || e.tool === 'Glob'
-      const isCrewTool = /^(Task|Agent|Delegate|SpawnAgent|TeamCreate|TaskOutput)$/i.test(e.tool)
-      const mode = WEB.has(e.tool)
+      const isSearch = e.tool === 'Grep' || e.tool === 'Glob' || e.tool === 'LSP'
+      const isCrewTool = /^(Task|Agent|Delegate|SpawnAgent|TeamCreate|TaskOutput|SendMessage)$/i.test(e.tool)
+      const isQuestion = QUESTIONS.has(e.tool)
+      const mode = isQuestion
+        ? 'ask'
+        : WEB.has(e.tool) || (isOutside && BROWSING.test(e.tool))
         ? 'web'
         : isSearch
           ? 'search'
@@ -592,8 +621,12 @@ export const register: Register = on => {
       // search's pattern, or the outside tool's own name.
       const label = isShell
         ? `$ ${command.trim().split(/\s+/).slice(0, 2).join(' ')}`
+        : isQuestion
+          ? e.tool === 'ExitPlanMode' ? '? A plan to approve' : '? A question for you'
+        : e.tool === 'Skill'
+          ? `✦ ${String(input.skill ?? 'skill')}`
         : isSearch
-          ? `⌕ ${String(input.pattern ?? '')}`
+          ? `⌕ ${String(input.pattern ?? input.query ?? input.operation ?? '')}`
           : isOutside
             ? `⚙ ${e.tool.split('__').pop()}`
             : isCrewTool
@@ -608,6 +641,8 @@ export const register: Register = on => {
       if (mode) {
         await update($, activity, a => ({ ...a, [agent]: { tool: label, file: at, at: Date.now(), isActive: true, isEdit: false, mode } }))
       }
+      // A question waits on you like a permission prompt, until it is answered.
+      if (isQuestion) await update($, asking, a => ({ ...a, [agent]: Date.now() }))
       const ran = await next(e)
       await answered($, e.agentId ?? '')
       if (mode) {
@@ -616,6 +651,7 @@ export const register: Register = on => {
       if (mode === 'test' && !ran.deny) {
         const failed = ran.isError || /\b(FAIL(ED|URE)?|[1-9]\d* fail(ed|ing|ures?)?)\b/.test(String(ran.text ?? ''))
         await update($, splats, s => ({ ...s, [agent]: { kind: failed ? 'fail' : 'pass', damage: 0, at: Date.now() } }))
+        await trackBugs($, failed, at, agent, String(ran.text ?? ''))
         await update($, stats, s => ({ ...s, checks: (s.checks ?? 0) + 1 }))
         await recordHaven($, { kind: 'check', ok: !failed })
       } else if (WEB.has(e.tool) && !ran.deny && !ran.isError) {
@@ -692,6 +728,8 @@ export const register: Register = on => {
     await update($, asking, () => ({}))
     await update($, activity, a => ({ ...a, '0': { tool: '', file: '#hall', at: Date.now(), isActive: false, isEdit: false } }))
     await update($, questState, s => s.status === 'blocked' ? { ...s, status: 'active' } : s)
+    await update($, mobs, list => list.some(mob => mob.defeatedAt !== undefined) ? list.filter(mob => mob.defeatedAt === undefined) : list)
+    phases.clear()
     const state = await read($, haven)
     const session = await read($, stats)
     if (state) await update($, turnSnapshot, () => ({ seq: state.run.seq, landmarks: state.landmarks.map(l => l.id), edits: session.edits, quests: session.quests, crew: session.crew ?? 0, xp: session.xp ?? 0 }))
@@ -699,6 +737,36 @@ export const register: Register = on => {
     rescan($)
 
     return next(e)
+  })
+
+  // The model's response as it streams: thinking, then writing its reply, then
+  // calling a tool. Each loop's character shows the phase it is in; only a change
+  // is written, and a tool already running is never overwritten.
+  on('turn.step', async function* ($, e, next) {
+    const loopId = e.agentId ?? ''
+    // Each step starts afresh: the first thing it streams is always shown.
+    phases.delete(loopId)
+    const stream = next(e)
+    for (;;) {
+      const piece = await stream.next()
+      if (piece.done) return piece.value
+      const chunk = piece.value
+      const phase: Activity['mode'] | undefined = chunk.kind === 'thinking' ? 'think' : chunk.kind === 'text' ? 'reply' : chunk.kind === 'tool' ? 'think' : undefined
+      if (phase && phases.get(loopId) !== phase) {
+        phases.set(loopId, phase)
+        try {
+          const agent = await agentOf($, loopId)
+          await update($, activity, a => {
+            const was = a[agent]
+            if (was?.isActive) return a
+            return { ...a, [agent]: { tool: was?.tool ?? '', file: was?.file ?? (agent === 0 ? '#hall' : '#crew'), at: Date.now(), isActive: false, isEdit: was?.isEdit ?? false, isNew: was?.isNew, mode: phase } }
+          })
+        } catch {
+          // A missed phase costs only the cue, never the response.
+        }
+      }
+      yield chunk
+    }
   })
 
   // Asked for permission: its character bounces under a ? until the tool goes on.
@@ -890,7 +958,7 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
   // Where an agent is: its room's folder trail and file, or the Patchboard,
   // Crew Lodge, Terminal, or Inn, as the scene draws it.
   const whereOf = (agent: string, act: Activity): string => {
-    if (agent === '0' && !turn) return 'Inn · waiting for you'
+    if (agent === '0' && !turn) return 'Camp · waiting for you'
     if (act.file === '#crew') return 'Crew Lodge · between tasks'
     if (act.file === '#hall') return act.mode === 'quests' ? 'Patchboard · reading work orders' : 'Patchboard'
     if (act.file === '#terminal') return `Terminal · ${act.tool}`
@@ -905,39 +973,82 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
     ? failed.error === 'rate_limit' ? 'NO ENERGY' : 'PAUSED'
     : turn ? `WORKING${clock ? ` · ${clock}` : ''}` : runningCrew.length ? `${runningCrew.length} CREW ACTIVE` : 'AT CAMP'
 
-  // A short game HUD leaves most of the pane for the living file map.
-  const header = (
-    <Box borderStyle="single" borderColor="#60766b" backgroundColor="#1b2b29" paddingX={1} flexDirection="column">
-      <Box justifyContent="space-between">
-        <Text color="#e0c78f" weight="semibold" wrap="truncate-end">PATCHHAVEN · {home?.run.name ?? 'Home'}</Text>
-        <Text color={failed ? '#e89a87' : turn ? '#9bc9a3' : '#a9b7a5'} size="caption">{workStatus}</Text>
-      </Box>
-      <Box justifyContent="space-between">
-        <Text color={HERO_COLORS[HEROES.indexOf(profile?.hero ?? 'wizard')]} size="caption" wrap="truncate-end">
-          {profile?.name ?? 'Claude'} · {profile?.hero ?? 'wizard'} · {stage}{profile?.title ? ` · ${profile.title}` : ''}
-        </Text>
-      </Box>
-      <Box justifyContent="space-between">
+  const alerts = <>
+    {home?.saveError && <Text color="#e4bd8a" size="caption">Progress is live for this visit; saving is unavailable.</Text>}
+    {failed && (
+      <Text color={failed.error === 'rate_limit' ? '#ff5b5b' : '#c8c8ce'} size="caption" weight="semibold">
+        {failed.error === 'rate_limit' ? '⚡ Out of run energy · usage limit reached' : `⚠ Stopped · ${FAILURES[failed.error] ?? failed.error}`}
+      </Text>
+    )}
+  </>
+  const renderWidth = Math.max(200, Math.min(560, (e.props.bodyColumns ?? 40) * 8))
+  const zoom = profile?.size === 'large' ? 1.22 : profile?.size === 'comfortable' ? 1.12 : 1
+  const looseBugs = (fixture ? fixture.mobs : playback ? [] : await read($, mobs)).filter(mob => mob.defeatedAt === undefined).length
+
+  // The HUD: hero plate, Coding bar with XP drops, skill orbs and the visit's haul.
+  // A terminal has no Svg, so it keeps the same facts as a few lines of text.
+  let header
+  if (Svg) {
+    const now = Date.now()
+    const recentEvents = (home?.run.events ?? []).filter(event => now - event.at < 4000 && event.skill && event.skillXp)
+    const codingDrops = Object.values(playback ? {} : await read($, drops)).filter(drop => now - drop.at < 3600)
+    const hudDrops: HudDrop[] = [
+      ...codingDrops.map(drop => ({ xp: drop.xp, skill: 'coding', at: drop.at })),
+      ...recentEvents.map(event => ({ xp: event.skillXp!, skill: event.skill!, at: event.at })),
+    ].sort((a, b) => a.at - b.at)
+    const checks = home?.run.events.filter(event => event.kind === 'check') ?? []
+    const heroIndex = Math.max(0, HEROES.indexOf(profile?.hero ?? 'wizard'))
+    const hudWidth = renderWidth / zoom
+    const recentLevel = await read($, levelUp)
+    const hud = drawHud({
+      width: hudWidth,
+      scale: Math.max(1.1, Math.min(1.38, renderWidth / 315)),
+      motion: profile?.motion !== false,
+      now,
+      portrait: AGENT_QUEST_SPRITES[roleFor('0', heroIndex)]!.idle.south,
+      name: `${profile?.name ?? 'Claude'}${profile?.title ? ` · ${profile.title}` : ''}`,
+      subtitle: demo ? 'Sample scene · saved progress unchanged' : `${profile?.hero ?? 'wizard'} · ${stage} · ${home?.run.name ?? 'Home'}`,
+      status: workStatus,
+      statusTone: demo ? 'demo' : failed ? 'alert' : turn || runningCrew.length ? 'live' : 'calm',
+      coding: { level, xp: total, from, to },
+      levelUpAt: recentLevel?.at,
+      skills: SKILLS.map(skill => {
+        const amount = home?.skills[skill.id] ?? 0
+        const at = skillLevel(amount)
+        return { id: skill.id, name: skill.name, level: at.level, progress: at.to > at.from ? (amount - at.from) / (at.to - at.from) : 1, lit: recentEvents.some(event => event.skill === skill.id) }
+      }),
+      drops: hudDrops,
+      haul: {
+        edits: session.edits, files: session.files.length, passed: checks.filter(event => event.ok).length, failed: checks.filter(event => !event.ok).length,
+        quests: session.quests, banked: banked?.total ?? 0, crew: session.crew ?? 0, bugs: looseBugs, add: session.add ?? 0, del: session.del ?? 0,
+      },
+    })
+    header = <Box flexDirection="column">
+      <Svg key="hud" source={hud.svg} width={renderWidth} height={Math.round(hud.height * renderWidth / hud.width)} alt={hud.alt} />
+      {alerts}
+    </Box>
+  } else {
+    header = (
+      <Box borderStyle="single" borderColor="#60766b" paddingX={1} flexDirection="column">
+        <Box justifyContent="space-between">
+          <Text color="#e0c78f" weight="semibold" wrap="truncate-end">{profile?.name ?? 'Claude'} · {profile?.hero ?? 'wizard'} · {stage}</Text>
+          <Text color={failed ? '#e89a87' : turn ? '#9bc9a3' : '#a9b7a5'} size="caption">{workStatus}</Text>
+        </Box>
         <Text>
-          <Text color="#d8bf76">XP </Text>
+          <Text color="#d8bf76">Coding {level} </Text>
           <Text color="#ffcc33">{'▰'.repeat(Math.round(filled * 8 / bar))}</Text>
           <Text color="#5a4a2e">{'▱'.repeat(8 - Math.round(filled * 8 / bar))}</Text>
+          <Text color="#d4bd7a"> {total.toLocaleString()} xp</Text>
         </Text>
-        <Text color="#d4bd7a" size="caption">Coding {level} · {total.toLocaleString()} xp</Text>
+        <Text color="#b9c3ac" size="caption" wrap="truncate-end">
+          {demo
+            ? 'SAMPLE SCENE · SAVED PROGRESS UNCHANGED'
+            : `${session.edits} edits · ${session.files.length} files · ${session.quests} quests · ${home?.landmarks.length ?? 0}/${LANDMARKS.length} marks${looseBugs ? ` · ${looseBugs} bug${looseBugs === 1 ? '' : 's'} loose` : ''}`}
+        </Text>
+        {alerts}
       </Box>
-      <Text color="#b9c3ac" size="caption" wrap="truncate-end">
-        {demo
-          ? 'SAMPLE SCENE · SAVED PROGRESS UNCHANGED'
-          : `${session.edits} edits · ${session.files.length} files · ${session.quests} quests · ${home?.landmarks.length ?? 0}/${LANDMARKS.length}${session.add ? ` · +${session.add.toLocaleString()} lines` : ''}${session.del ? ` · −${session.del.toLocaleString()} lines` : ''}${session.xp ? ` · +${session.xp} visit XP` : ''}`}
-      </Text>
-      {home?.saveError && <Text color="#e4bd8a" size="caption">Progress is live for this visit; saving is unavailable.</Text>}
-      {failed && (
-        <Text color={failed.error === 'rate_limit' ? '#ff5b5b' : '#c8c8ce'} size="caption" weight="semibold">
-          {failed.error === 'rate_limit' ? '⚡ Out of run energy · usage limit reached' : `⚠ Stopped · ${FAILURES[failed.error] ?? failed.error}`}
-        </Text>
-      )}
-    </Box>
-  )
+    )
+  }
 
   const navigation = (
     <Box gap={1}>
@@ -959,16 +1070,21 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
       const location = act ? whereOf(String(agent.index), act) : 'Patchboard'
       const needsApproval = waiting[String(agent.index)] !== undefined
       const action = activityAction(act ?? { tool: '', file: '#crew', at: Date.now(), isActive: false, isEdit: false, mode: 'background' }, agent.status === 'running', needsApproval, false)
-      const state = needsApproval ? 'approval' : agent.status === 'running' ? act?.isActive ? CREW_ACTION_LABELS[action] : 'between tools' : agent.status === 'failed' ? 'failed' : agent.status === 'killed' ? 'stopped' : 'done'
+      const state = needsApproval ? 'approval' : agent.status === 'running' ? act?.isActive || action === 'thinking' && act?.mode === 'think' || action === 'replying' ? CREW_ACTION_LABELS[action] : 'between tools' : agent.status === 'failed' ? 'failed' : agent.status === 'killed' ? 'stopped' : 'done'
       const color = needsApproval || agent.status === 'failed' ? '#e6a18b' : agent.status === 'running' ? '#9bc9a3' : '#b9c3ac'
-      const hero = HEROES.indexOf(profile?.hero ?? 'wizard')
-      const cast = [0, 1, 2, 3].filter(index => index !== hero)
-      const role = AGENT_QUEST_ROLES[cast[(Math.max(1, agent.index) - 1) % cast.length] ?? 0]!
+      const role = roleFor(String(agent.index), HEROES.indexOf(profile?.hero ?? 'wizard'))
       const sprite = AGENT_QUEST_SPRITES[role]!
-      const observing = ['reading', 'searching', 'researching', 'thinking', 'planning', 'waiting', 'idle'].includes(action)
-      const pose = agent.status === 'running' && act?.isActive && !observing ? sprite.attack[4] : sprite.idle[action === 'reading' || action === 'searching' || action === 'researching' || action === 'thinking' || action === 'planning' ? 'north' : 'south']
+      const working = agent.status === 'running' && Boolean(act?.isActive) && !['reading', 'searching', 'researching', 'planning', 'waiting'].includes(action)
       const animateAvatar = profile?.motion !== false && agent.status === 'running'
-      const avatarSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56" shape-rendering="crispEdges"><g><image href="' + pose + '" width="56" height="56" image-rendering="pixelated"/>' + (animateAvatar ? '<animateTransform attributeName="transform" type="translate" values="0 0;0 -1;0 0" dur="' + (act?.isActive ? '.55s' : '1s') + '" repeatCount="indefinite"/>' : '') + '</g>' + (agent.status === 'running' ? '<rect x="40" y="2" width="14" height="14" rx="3" fill="#1b3430" stroke="' + (act?.isActive ? '#efca75' : '#9cc8a1') + '" stroke-width="1"/><text x="47" y="12" text-anchor="middle" font-size="9" font-weight="700" fill="#ffe6a1">' + (needsApproval ? '?' : ACTION_GLYPHS[action]) + '</text>' : '') + '</svg>'
+      // The same strip as on the map: a full work stroke and a breath, or a still pose.
+      const body = working
+        ? '<svg width="56" height="56" viewBox="0 0 56 56" overflow="hidden"><image href="' + sprite.attack + '" width="' + AGENT_QUEST_FRAME * AGENT_QUEST_FRAMES + '" height="56" image-rendering="pixelated" x="' + (animateAvatar ? 0 : -4 * AGENT_QUEST_FRAME) + '">' +
+          (animateAvatar ? '<animate attributeName="x" calcMode="discrete" values="' + Array.from({ length: AGENT_QUEST_FRAMES }, (_, i) => -i * AGENT_QUEST_FRAME).join(';') + ';0" keyTimes="' + Array.from({ length: AGENT_QUEST_FRAMES }, (_, i) => (i * .75 / AGENT_QUEST_FRAMES / 1.35).toFixed(3)).join(';') + ';' + (.75 / 1.35).toFixed(3) + '" dur="1.35s" repeatCount="indefinite"/>' : '') + '</image></svg>'
+        : '<g><image href="' + sprite.idle[['reading', 'searching', 'researching', 'planning', 'replying'].includes(action) ? 'west' : 'south'] + '" width="56" height="56" image-rendering="pixelated"/>' + (animateAvatar ? '<animateTransform attributeName="transform" type="translate" values="0 0;0 -1;0 0" dur="1.8s" repeatCount="indefinite"/>' : '') + '</g>'
+      const badge = agent.status !== 'running' ? '' : needsApproval
+        ? '<rect x="38" y="4" width="15" height="15" rx="3" fill="#f0d17d" stroke="#533b2b"/><text x="45.5" y="15.5" text-anchor="middle" font-size="11" font-weight="700" fill="#33271e">?</text>'
+        : '<rect x="38" y="4" width="15" height="15" rx="3" fill="#24372c" stroke="' + (act?.isActive ? '#efca75' : '#9cc8a1') + '" stroke-width="1"/>' + actionIcon(action, 41, 7, 9, act?.isActive ? '#ffe6a1' : '#cfd8c4')
+      const avatarSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 2 50 50" shape-rendering="crispEdges">' + body + badge + '</svg>'
       const age = act?.at ? Math.max(0, Math.floor((Date.now() - act.at) / 1000)) : undefined
       const seen = age === undefined ? 'not seen yet' : age < 60 ? `${age}s` : `${Math.floor(age / 60)}m`
       return <Box key={`task-${agent.id}`} flexDirection="row" gap={1}>
@@ -1087,11 +1203,25 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
   </Box>
 
   // The terminal has no real Svg: its table stands one in that draws only the alt text.
+  // Who is where, doing what: the map's facts as words, for the terminal and the map's alt text.
+  const bugList = fixture ? fixture.mobs : playback ? [] : await read($, mobs)
+  const field = [{ id: '0', who: profile?.name ?? 'Claude' }, ...runningCrew.map(agent => ({ id: String(agent.index), who: agent.name || agent.type || `Agent ${agent.index}` }))].map(({ id, who }) => {
+    const act = acts[id] ?? { tool: '', file: id === '0' ? (turn ? '#hall' : '#inn') : '#crew', at: Date.now(), isActive: false, isEdit: false }
+    const label = id === '0' && !turn ? 'resting' : labelFor(act, waiting[id] !== undefined, id !== '0' && runningIndexes.has(id), id === '0' && turn).toLowerCase()
+    return { id, text: `${who} · ${label} · ${whereOf(id, act)}`, isWaiting: waiting[id] !== undefined }
+  })
+  const bugText = looseBugs ? `${looseBugs} bug${looseBugs === 1 ? '' : 's'} loose from failing checks · a passing check squashes ${looseBugs === 1 ? 'it' : 'them'}` : ''
+
   if (!Svg) {
     return (
       <Box flexDirection="column" gap={1}>
         {header}
         {navigation}
+        <Box flexDirection="column">
+          <Text weight="semibold" color="#dfc68b">IN THE FIELD</Text>
+          {field.map(line => <Text key={`field-${line.id}`} color={line.isWaiting ? '#f0d17d' : line.id === '0' ? '#e0c78f' : '#b9d3b2'} size="caption" wrap="truncate-end">{line.isWaiting ? '? ' : '◆ '}{line.text}</Text>)}
+          {bugText && <Text color="#f0a28f" size="caption" wrap="truncate-end">✶ {bugText}</Text>}
+        </Box>
         {crewPanel}
         {replayNotice}
         {plan.length > 0 && (
@@ -1111,8 +1241,6 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
     )
   }
 
-  const renderWidth = Math.max(200, Math.min(560, (e.props.bodyColumns ?? 40) * 8))
-  const zoom = profile?.size === 'large' ? 1.22 : profile?.size === 'comfortable' ? 1.12 : 1
   const width = renderWidth / zoom
   let rooms = fixture ? fixture.rooms : roomsOf(touched, playback ? {} : git, Object.values(acts).map(a => a.file))
   if (!fixture) rooms = rooms.map(room => {
@@ -1156,6 +1284,7 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
     departs: gone,
     compactAt: playback ? undefined : (await read($, compactAt)) ?? undefined,
     asking: waiting,
+    mobs: bugList,
     failure: failed ?? undefined,
     stoppedAt: playback ? undefined : (await read($, stoppedAt)) ?? undefined,
     bank: playback ? undefined : banked ?? undefined,
@@ -1171,7 +1300,7 @@ async function drawPane($: EngineInterface, e: RenderInput<'Pane'>) {
           the app rebuilds on every redraw, which flashed white. Its SMIL
           animations run the same either way. Scaled to the pane's width: the
           narrower the scene came out, the closer the zoom. */}
-      <Svg key="scene" source={drawn.svg} width={renderWidth} height={Math.round((drawn.height * renderWidth) / drawn.width)} alt={`Patchhaven: ${profile?.view === 'focus' ? 'focused file trail' : 'pixel world with Claude and background agents moving between files'}${playback ? ' (recorded visit)' : ''}${demo ? ` (${demo} sample scene)` : ''}`} />
+      <Svg key="scene" source={drawn.svg} width={renderWidth} height={Math.round((drawn.height * renderWidth) / drawn.width)} alt={`Patchhaven${playback ? ' recorded visit' : ''}${demo ? ` ${demo} sample scene` : ''}: ${field.map(line => line.text).join('. ')}.${bugText ? ` ${bugText}.` : ''}`} />
       {!turn && !playback && !demo && home?.lastRecap && <Box flexDirection="column" borderStyle="single" borderColor="#806d49" paddingX={1}>
         <Text color="#e0c782" weight="semibold">LAST FIELD REPORT · {recapText(home.lastRecap)}</Text>
         {home.lastRecap.files.length > 0 && <Text size="caption" color="#b9c3ac" wrap="truncate-end">{home.lastRecap.files.slice(-4).join(' · ')}</Text>}

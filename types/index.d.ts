@@ -26,7 +26,9 @@ export type Touch = { path: string; agent: number; isActive: boolean; edits: num
 // (at the Patchboard), running a command or an outside tool (in the Terminal), or running
 // tests, searching the web or applying changes (at its desk).
 // `isApply`: a batch of changes applied at once (MultiEdit, git apply, patch).
-export type Activity = { tool: string; file: string; at: number; isActive: boolean; isEdit: boolean; isNew?: boolean; isApply?: boolean; mode?: 'test' | 'web' | 'apply' | 'edit' | 'create' | 'read' | 'search' | 'tool' | 'quests' | 'shell' | 'background' }
+// Between tools, `think` and `reply` say the model is thinking or writing its reply,
+// as its response streams; `ask` is a question put to you (AskUserQuestion, a plan to approve).
+export type Activity = { tool: string; file: string; at: number; isActive: boolean; isEdit: boolean; isNew?: boolean; isApply?: boolean; mode?: 'test' | 'web' | 'apply' | 'edit' | 'create' | 'read' | 'search' | 'tool' | 'quests' | 'shell' | 'background' | 'think' | 'reply' | 'ask' }
 export type CrewAgent = { id: string; index: number; name: string; type: string; description: string; status: 'running' | 'completed' | 'failed' | 'killed' }
 // A hitsplat over a character: a failed tool's damage, or a test run's pass or fail.
 export type Splat = { kind: 'hit' | 'pass' | 'fail' | 'denied'; damage: number; at: number }
@@ -38,6 +40,9 @@ export type Change = { code: 'M' | 'A' | 'D' | 'R' | 'U'; add: number; del: numb
 export type Drop = { xp: number; at: number }
 // The last commit's files, when, and all files banked this session.
 export type Bank = { files: number; at: number; total: number }
+// A bug a failing check let loose where it ran (a file, or '#terminal'), until a later
+// check passes. `hp`: failing checks the run reported, one to five.
+export type Mob = { id: string; file: string; agent: number; hp: number; at: number; defeatedAt?: number }
 export type Stats = { edits: number; files: string[]; quests: number; checks?: number; crew?: number; xp?: number; add?: number; del?: number }
 
 declare module 'claude-code' {
@@ -80,8 +85,10 @@ declare module 'claude-code' {
       failure: Failure | null
       // When you last stopped a turn, for the wizard's bubble at the Inn.
       stoppedAt: number | null
-      demoMode: 'idle' | 'edit' | 'crew' | 'approval' | 'failure' | 'complete' | null
+      demoMode: 'idle' | 'edit' | 'crew' | 'approval' | 'failure' | 'bug' | 'complete' | null
       selectedCrew: string
+      // Bugs from failing checks, and recently beaten ones while they fall.
+      mobs: Mob[]
       turnSnapshot: { seq: number; landmarks: string[]; edits: number; quests: number; crew: number; xp: number } | null
     }
   }

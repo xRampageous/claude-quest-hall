@@ -1,6 +1,18 @@
 import { expect, mock, test } from 'claude-code/testing'
 import { drawLivingTrail } from '../hooks/living-trail'
 
+type Drawing = { findAll(query: { type: string }): Promise<readonly { text?: string; props: Record<string, unknown> }[]> }
+// The living map, told from the HUD by its own label.
+async function sceneOf(ui: Drawing) {
+  return (await ui.findAll({ type: 'Svg' })).find(item => String(item.props.source).includes('Patchhaven live work trail'))!
+}
+// Everything the pane says in words: its texts and each picture's alt text.
+async function textsOf(ui: Drawing) {
+  const texts = (await ui.findAll({ type: 'Text' })).map(item => item.text ?? '')
+  const alts = (await ui.findAll({ type: 'Svg' })).map(item => String(item.props.alt ?? ''))
+  return [...texts, ...alts].join('\n')
+}
+
 const PANE = {
   plugin: 'task-board',
   component: 'Pane',
@@ -46,8 +58,11 @@ test('live tool activity gets its own pose, badge and animation', () => {
     expect(svg).toContain('<animate')
   }
 
-  expect(render({ mode: 'edit', tool: 'Edit', isEdit: true })).toContain('aq-mage-attack-0')
-  expect(render({ mode: 'read', tool: 'Read' })).toContain('aq-mage-idle-north')
+  // Hands-on work plays the whole attack strip at a prop; reading faces the open book.
+  expect(render({ mode: 'edit', tool: 'Edit', isEdit: true })).toMatch(/<use href="#aq-mage-attack" x="0"><animate attributeName="x" calcMode="discrete" values="0;-56;-112;-168;-224;-280;-336;-392;-448;0"/)
+  expect(render({ mode: 'edit', tool: 'Edit', isEdit: true })).toContain('data-prop="page"')
+  expect(render({ mode: 'read', tool: 'Read' })).toContain('aq-mage-idle-west')
+  expect(render({ mode: 'read', tool: 'Read' })).toContain('data-prop="book"')
 })
 
 function world($: Parameters<Parameters<typeof test>[1]>[0], on: Parameters<Parameters<typeof test>[1]>[1], options: { mockStore?: boolean; respondToolCall?: (event: Record<string, unknown>) => unknown | Promise<unknown> } = {}) {
@@ -90,18 +105,18 @@ test('foreground creation and background-agent tools stay animated until they re
   const pending = $.tool.call({ tool: 'Write', file_path: 'C:\\proj\\src\\Fresh.java', content: 'class Fresh {}', agentId: 'review-1' } as never)
   await started
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  const svg = String(((await ui.find({ type: 'Svg' })) as unknown as { props: { source: string } }).props.source)
+  const svg = String(((await sceneOf(ui as never)) as unknown as { props: { source: string } }).props.source)
   expect(svg).toMatch(/data-agent="1" data-role="(?:mage|rogue|ranger|sage)" data-state="creating" data-action="creating"/)
   expect(svg).toContain('data-action-marker="creating"')
   await ui.press({ key: 'crew-toggle' })
-  const crewText = (await ui.findAll({ type: 'Text' })).map(item => item.text).join('\n')
+  const crewText = await textsOf(ui as never)
   expect(crewText).toContain('· creating')
   await ui.unmount()
 
   continueTool()
   await pending
   const completed = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  const after = String(((await completed.find({ type: 'Svg' })) as unknown as { props: { source: string } }).props.source)
+  const after = String(((await sceneOf(completed as never)) as unknown as { props: { source: string } }).props.source)
   expect(after).toContain('data-action="thinking"')
   expect(after).toContain('data-action-marker="thinking"')
   expect(after).toContain('BETWEEN TOOLS')
@@ -116,16 +131,16 @@ test('the compact patch trail shows files, quests and the Coding level', async (
   await clock.advance(1000)
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')
+  const texts = await textsOf(ui as never)
   // 10 for the edit and 4 per line written: 18 xp, still level 1.
   expect(texts).toContain('Coding 1')
   expect(texts).toContain('18 xp')
-  const scene = await ui.find({ type: 'Svg' })
+  const scene = await sceneOf(ui as never)
   const svg = String((scene as unknown as { props: { source: string } }).props.source)
   expect(svg).toContain('PATCHBOARD')
   expect(svg).toContain('data-station="board"')
   expect(svg).toContain('data-station="folder"')
-  expect(svg).toContain('NOW · HEARTH')
+  expect(svg).toContain('NOW · CAMP')
   expect(svg).toContain('aria-label="Patchhaven live work trail"')
   expect(svg).toContain('PATCHBOARD 0/1')
   expect(svg).toContain('aqbg-guild')
@@ -151,8 +166,8 @@ test('thinking, creating, teleporting and banking all show in the scene', async 
   await $.prompt.submit({ text: 'go' } as never)
   const svgOf = async () => {
     const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-    const svg = String(((await ui.find({ type: 'Svg' })) as unknown as { props: { source: string } }).props.source)
-    const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')
+    const svg = String(((await sceneOf(ui as never)) as unknown as { props: { source: string } }).props.source)
+    const texts = await textsOf(ui as never)
     await ui.unmount()
 
     return { svg, texts }
@@ -191,7 +206,7 @@ test('Claude walks with directional Agent Quest frames when the live file distri
   await $.prompt.submit({ text: 'patch two areas' } as never)
   const render = async () => {
     const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-    const scene = await ui.find({ type: 'Svg' }) as unknown as { props: { source: string } }
+    const scene = await sceneOf(ui as never) as unknown as { props: { source: string } }
     const svg = String(scene.props.source)
     await ui.unmount()
     return svg
@@ -203,8 +218,9 @@ test('Claude walks with directional Agent Quest frames when the live file distri
   const svg = await render()
   expect(svg).toContain('data-current-location="room:docs"')
   expect(svg).toContain('data-state="walking"')
-  expect(svg).toMatch(/aq-mage-walk-(?:east|west|north|south)-(?:0|4|8)/)
-  expect(svg).toContain('dur=".45s" fill="freeze"')
+  // A whole nine-frame walk strip, added to the worker's place rather than replacing it.
+  expect(svg).toMatch(/aq-mage-walk-(?:east|west|north|south)/)
+  expect(svg).toMatch(/type="translate" additive="sum" from="-[\d.]+ 0" to="0 0" dur="[\d.]+s" fill="freeze"/)
 })
 
 test('seven background reviewers stay tucked away until the crew roster opens', async ($, on) => {
@@ -222,8 +238,9 @@ test('seven background reviewers stay tucked away until the crew roster opens', 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const roster = await ui.find({ key: 'crew-toggle' })
   expect(roster?.props.label).toBe('Background crew · 7 running · 7 tracked ▾')
-  expect((await ui.findAll({ type: 'Svg' })).length).toBe(1)
-  const map = await ui.find({ type: 'Svg' })
+  // The HUD and the map; the roster's portraits stay folded away.
+  expect((await ui.findAll({ type: 'Svg' })).length).toBe(2)
+  const map = await sceneOf(ui as never)
   const mapSvg = String((map as unknown as { props: { source: string } }).props.source)
   expect(mapSvg).toContain('data-station="crew"')
   expect(mapSvg).toContain('aria-label="Crew Lodge work station"')
@@ -232,13 +249,13 @@ test('seven background reviewers stay tucked away until the crew roster opens', 
   expect(mapSvg).toMatch(/data-role="(?:mage|rogue|ranger|sage)" data-state="thinking" data-action="thinking"/)
   expect(mapSvg).toMatch(/data-action-marker="thinking"/)
   expect(mapSvg).toContain('values=".25;1;.25"')
-  expect(mapSvg).not.toMatch(/aq-(?:mage|rogue|ranger|sage)-attack-0/)
+  expect(mapSvg).not.toMatch(/aq-(?:mage|rogue|ranger|sage)-attack/)
   const collapsedButtons = (await ui.findAll({ type: 'Button' })).map(button => String(button.props.label ?? '')).join('\n')
   expect(collapsedButtons).not.toContain('Sonnet 5.5 reviewer 1')
   await ui.press({ key: 'crew-toggle' })
   expect((await ui.find({ key: 'crew-toggle' }))?.props.label).toBe('Background crew · 7 running · 7 tracked ▴')
-  expect((await ui.findAll({ type: 'Svg' })).length).toBe(8)
-  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')
+  expect((await ui.findAll({ type: 'Svg' })).length).toBe(9)
+  const texts = await textsOf(ui as never)
   const buttonLabels = (await ui.findAll({ type: 'Button' })).map(button => String(button.props.label ?? '')).join('\n')
   for (let i = 1; i <= 7; i++) {
     expect(buttonLabels).toContain(`Sonnet 5.5 reviewer ${i}`)
@@ -248,12 +265,14 @@ test('seven background reviewers stay tucked away until the crew roster opens', 
 
   await $.command.run({ command: 'haven', args: 'motion' })
   const still = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  const stillMap = String(((await still.find({ type: 'Svg' })) as unknown as { props: { source: string } }).props.source)
-  expect(stillMap).not.toContain('<animate')
+  // Motion off stills every picture: the map, the HUD and each roster portrait.
+  const stillPictures = (await still.findAll({ type: 'Svg' })).map(item => String(item.props.source))
+  expect(stillPictures.length).toBe(9)
+  for (const picture of stillPictures) expect(picture).not.toContain('<animate')
   await still.unmount()
 
   const terminal = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  const terminalTexts = (await terminal.findAll({ type: 'Text' })).map(t => t.text).join('\n')
+  const terminalTexts = await textsOf(terminal as never)
   const terminalButtons = (await terminal.findAll({ type: 'Button' })).map(button => String(button.props.label ?? '')).join('\n')
   expect((await terminal.findAll({ type: 'Svg' })).length).toBe(0)
   for (let i = 1; i <= 7; i++) expect(`${terminalTexts}\n${terminalButtons}`).toContain(`Sonnet 5.5 reviewer ${i}`)
@@ -273,7 +292,7 @@ test('Focus follows one selected worker and keeps other agents off the map', asy
   await ui.unmount()
 
   const focused = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  const map = await focused.find({ type: 'Svg' }) as unknown as { props: { source: string } }
+  const map = await sceneOf(focused as never) as unknown as { props: { source: string } }
   const svg = String(map.props.source)
   expect(svg).toContain('data-station="crew"')
   expect(svg).toContain('aria-label="Current scene: Crew Lodge"')
@@ -287,7 +306,7 @@ test('approval waits show a question marker on the worker', async ($, on) => {
   await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
   await $.command.run({ command: 'haven', args: 'demo approval' })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  const map = await ui.find({ type: 'Svg' }) as unknown as { props: { source: string } }
+  const map = await sceneOf(ui as never) as unknown as { props: { source: string } }
   expect(String(map.props.source)).toContain('AWAITING YOU')
   expect(String(map.props.source)).toContain('>?</text>')
   await ui.unmount()
@@ -298,7 +317,7 @@ test('a failed tool lands a hitsplat; a test run trains at the dummy and splats 
   await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
   const svgOf = async () => {
     const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-    const svg = String(((await ui.find({ type: 'Svg' })) as unknown as { props: { source: string } }).props.source)
+    const svg = String(((await sceneOf(ui as never)) as unknown as { props: { source: string } }).props.source)
     await ui.unmount()
 
     return svg
@@ -318,8 +337,8 @@ test('commands run in the Terminal; a refusal splats; the usage limit is out of 
   await $.prompt.submit({ text: 'go' } as never)
   const shown = async () => {
     const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-    const svg = String(((await ui.find({ type: 'Svg' })) as unknown as { props: { source: string } }).props.source)
-    const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')
+    const svg = String(((await sceneOf(ui as never)) as unknown as { props: { source: string } }).props.source)
+    const texts = await textsOf(ui as never)
     await ui.unmount()
 
     return { svg, texts }
@@ -367,7 +386,7 @@ test('XP saved by another copy of the mod carries over', async ($, on) => {
   on('fs.read', () => ({ value: '{"xp":9262}' }))
   await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')
+  const texts = await textsOf(ui as never)
   expect(texts).toContain('9,262 xp')
   await ui.unmount()
 })
@@ -385,10 +404,10 @@ test('a failed XP save preserves the successful edit and its XP feedback', async
   expect(ran.result).toBe('ok')
   expect(saves).toBeGreaterThanOrEqual(4)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')
+  const texts = await textsOf(ui as never)
   expect(texts).toContain('18 xp')
   expect(texts).toContain('1 edit')
-  const scene = await ui.find({ type: 'Svg' })
+  const scene = await sceneOf(ui as never)
   expect(String((scene as unknown as { props: { source: string } }).props.source)).toContain('>+18<')
   await ui.unmount()
 })
@@ -403,14 +422,15 @@ test('board help lists its commands without changing the plan setting', async ($
   expect((await $.command.run({ command: 'board', args: 'plan' })).text).toBe("Claude's steps show under each message again.")
 })
 
-test('between turns, Claude rests by the hearth in the shared guild hall', async ($, on) => {
+test('between turns, Claude rests by the campfire at camp', async ($, on) => {
   world($, on)
   await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  const scene = await ui.find({ type: 'Svg' })
+  const scene = await sceneOf(ui as never)
   const svg = String((scene as unknown as { props: { source: string } }).props.source)
   expect(svg).toContain('AT CAMP')
-  expect(svg).toContain('NOW · HEARTH')
+  expect(svg).toContain('NOW · CAMP')
+  expect(svg).toContain('data-prop="campfire"')
   expect(svg).toContain('data-station="board"')
   expect(svg).toContain('data-station="inn"')
   expect(svg).not.toContain('data-station="terminal"')
@@ -428,10 +448,10 @@ test('every surface shows the quests: on the Patchboard, or as text in a termina
   await $.tool.call({ tool: 'mcp__ccd_turn__update_plan', items: [{ content: 'Ship the rooms', status: 'pending' }] } as never)
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    const scene = await ui.find({ type: 'Svg' })
+    const scene = await sceneOf(ui as never)
     const shown = surface !== 'terminal' && scene
       ? String((scene as unknown as { props: { source: string } }).props.source)
-      : (await ui.findAll({ type: 'Text' })).map(t => t.text).join('\n')
+      : await textsOf(ui as never)
     expect(`${surface}: ${shown}`).toContain('Ship the rooms')
     await ui.unmount()
   }
@@ -443,7 +463,7 @@ test('the patch labels stay readable in narrow and wide panes', async ($, on) =>
   await $.tool.call({ tool: 'mcp__ccd_turn__update_plan', items: [{ content: 'Ship the rooms', status: 'pending' }] } as never)
   for (const bodyColumns of [38, 54]) {
     const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns }, surface: 'desktop' })
-    const scene = (await ui.find({ type: 'Svg' })) as unknown as { props: { source: string; width: number } }
+    const scene = (await sceneOf(ui as never)) as unknown as { props: { source: string; width: number } }
     const viewBox = Number(/viewBox="0 0 ([\d.]+)/.exec(scene.props.source)?.[1])
     const size = Number(/font-size="([\d.]+)" fill="#f0efdc"/.exec(scene.props.source)?.[1])
     expect(size * (scene.props.width / viewBox)).toBeGreaterThanOrEqual(10)
@@ -456,7 +476,7 @@ test('scale modes enlarge the full map and motion off pauses ambient animation',
   await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
   const svgOf = async () => {
     const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-    const scene = (await ui.find({ type: 'Svg' })) as unknown as { props: { source: string; height: number } }
+    const scene = (await sceneOf(ui as never)) as unknown as { props: { source: string; height: number } }
     const result = { source: String(scene.props.source), height: scene.props.height }
     await ui.unmount()
     return result

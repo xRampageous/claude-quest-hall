@@ -1,10 +1,11 @@
-import type { Activity, Bank, Change, CrewAgent, Drop, Failure, Splat, Step, Touch } from '../types'
+import type { Activity, Bank, Change, CrewAgent, Drop, Failure, Mob, Splat, Step, Touch } from '../types'
 import type { Hero, Landmark } from './haven'
 import { drawAtlas } from './atlas'
 
 export type Desk = { path: string; name: string; touch: Touch; change?: Change }
 export type Room = { key?: string; slot?: number; name: string; desks: Desk[] }
 
+export type Spot = { x: number; y: number; place?: string }
 export type Scene = {
   haven?: { hero: Hero; landmarks: readonly Landmark[]; motion: boolean; size?: 'auto' | 'comfortable' | 'large'; title?: string }
   focusAgent?: string
@@ -16,7 +17,8 @@ export type Scene = {
   demo?: string
   rooms: readonly Room[]
   activity: Readonly<Record<string, Activity>>
-  from: Readonly<Record<string, { x: number; y: number }>>
+  // Where each worker stood at the last drawing, and in which place, so a move is walked.
+  from: Readonly<Record<string, Spot>>
   now: number
   isTurn: boolean
   width: number
@@ -30,6 +32,7 @@ export type Scene = {
   departs: Readonly<Record<string, number>>
   compactAt?: number
   asking: Readonly<Record<string, number>>
+  mobs?: readonly Mob[]
   failure?: Failure
   stoppedAt?: number
 }
@@ -79,6 +82,6 @@ export function roomsOf(touched: readonly Touch[], changes: Readonly<Record<stri
   })
 }
 
-export function drawRooms(scene: Scene): { svg: string; width: number; height: number; spots: Record<string, { x: number; y: number }> } {
+export function drawRooms(scene: Scene): { svg: string; width: number; height: number; spots: Record<string, Spot> } {
   return drawAtlas(scene)
 }
